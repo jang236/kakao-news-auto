@@ -11,14 +11,19 @@ from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 
 # .env 파일 로드 (Replit 배포 환경용)
-env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
-if os.path.exists(env_path):
-    with open(env_path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                os.environ.setdefault(key.strip(), value.strip())
+for env_candidate in ['.env', '/home/runner/workspace/.env', os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')]:
+    if os.path.exists(env_candidate):
+        with open(env_candidate) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key.strip()] = value.strip()
+        break
+
+# 디버그: API 키 상태 로깅
+_gk = os.environ.get("GEMINI_API_KEY", "")
+print(f"🔑 GEMINI_API_KEY: {'설정됨 (' + _gk[:10] + '...)' if _gk else '미설정'}")
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
