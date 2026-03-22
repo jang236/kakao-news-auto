@@ -13,9 +13,9 @@ from db import get_recent_sent_titles
 logger = logging.getLogger(__name__)
 
 # Gemini 설정
-API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBTqTYzgJ29gQynzxLByWu9AUF9JPjgvV8")
+API_KEY = os.environ.get("GEMINI_API_KEY", "")
 genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash-lite")
+model = genai.GenerativeModel("gemini-3-flash-preview")
 
 # ===== 프롬프트 =====
 

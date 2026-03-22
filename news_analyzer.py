@@ -11,9 +11,9 @@ import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
-API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBTqTYzgJ29gQynzxLByWu9AUF9JPjgvV8")
+API_KEY = os.environ.get("GEMINI_API_KEY", "")
 genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash-lite")
+model = genai.GenerativeModel("gemini-3-flash-preview")
 
 ANALYSIS_PROMPT = """당신은 뉴스를 투자자 관점에서 분석하는 전문가입니다.
 
