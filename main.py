@@ -10,6 +10,16 @@ import logging
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 
+# .env 파일 로드 (Replit 배포 환경용)
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+if os.path.exists(env_path):
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                os.environ.setdefault(key.strip(), value.strip())
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
