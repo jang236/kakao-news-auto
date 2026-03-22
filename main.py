@@ -288,6 +288,19 @@ async def health():
     return {"status": "ok"}
 
 
+@app.post("/reset-db")
+async def reset_db():
+    """DB 초기화 (테스트용)"""
+    import sqlite3
+    conn = sqlite3.connect("news_auto.db")
+    conn.execute("DELETE FROM news")
+    conn.commit()
+    conn.close()
+    global pending_news_queue
+    pending_news_queue = []
+    return {"status": "ok", "message": "DB 초기화 완료"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
