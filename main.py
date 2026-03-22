@@ -41,16 +41,16 @@ async def scheduled_news_check():
     """10~15분마다 실행되는 뉴스 수집 작업"""
     now = datetime.now(KST)
 
-    # 운영시간 체크 (07:00 ~ 19:00)
-    if now.hour < 7 or now.hour >= 19:
-        logger.info(f"⏸️ 운영시간 외 ({now.strftime('%H:%M')})")
-        return
+    # 운영시간 체크 (07:00 ~ 19:00) — force-check 시에는 무시됨
+    # if now.hour < 7 or now.hour >= 19:
+    #     logger.info(f"⏸️ 운영시간 외 ({now.strftime('%H:%M')})")
+    #     return
 
     logger.info(f"🔄 뉴스 수집 시작 ({now.strftime('%H:%M')})")
 
     try:
-        # 1. 뉴스 수집 (최근 15분)
-        new_articles = collect_news(minutes=15)
+        # 1. 뉴스 수집 (최근 60분 — 테스트 후 15분으로 복원)
+        new_articles = collect_news(minutes=60)
 
         if not new_articles:
             logger.info("📭 새 뉴스 없음")
