@@ -95,22 +95,22 @@ def analyze_news(title: str, description: str) -> dict:
         }
 
     except json.JSONDecodeError as e:
-        logger.error(f"분석 JSON 파싱 오류: {e}")
+        logger.error(f"분석 JSON 파싱 오류: {e}\n원문: {result_text[:200]}")
         return {
             "sentiment": "neutral",
             "tag": "이슈",
             "summary": description[:200] if description else title,
-            "ai_comment": "분석 중 오류 발생",
+            "ai_comment": f"JSON파싱오류: {str(e)[:50]}",
             "sectors": [],
             "related_stocks": []
         }
     except Exception as e:
-        logger.error(f"뉴스 분석 오류: {e}")
+        logger.error(f"뉴스 분석 오류: {type(e).__name__}: {e}")
         return {
             "sentiment": "neutral",
             "tag": "이슈",
             "summary": description[:200] if description else title,
-            "ai_comment": "분석 중 오류 발생",
+            "ai_comment": f"분석오류: {type(e).__name__}: {str(e)[:50]}",
             "sectors": [],
             "related_stocks": []
         }
