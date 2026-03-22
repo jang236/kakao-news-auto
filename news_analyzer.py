@@ -11,7 +11,7 @@ import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
-API_KEY = os.environ.get("GEMINI_API_KEY", "")
+API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBTqTYzgJ29gQynzxLByWu9AUF9JPjgvV8")
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")
 
