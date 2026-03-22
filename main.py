@@ -189,13 +189,66 @@ async def mark_sent_endpoint(data: dict):
 
 @app.post("/force-check")
 async def force_check():
-    """수동 뉴스 체크 트리거 (테스트용)"""
-    await scheduled_news_check()
-    return {
-        "status": "ok",
-        "pending_count": len(pending_news_queue),
-        "time": datetime.now(KST).isoformat()
-    }
+    """수동 뉴스 체크 트리거 (테스트용) — 디버그 정보 포함"""
+    debug_log = []
+
+    try:
+        # 1. 뉴스 수집
+        from news_collector import collect_news
+        debug_log.append("1. 뉴스 수집 시작")
+        new_articles = collect_news(minutes=120)
+        debug_log.append(f"1. 수집 완료: {len(new_articles)}건")
+
+        if not new_articles:
+            return {"status": "ok", "pending_count": 0, "debug": debug_log,
+                    "message": "새 뉴스 없음"}
+
+        # 2. 필터링
+        from news_filter import filter_news
+        debug_log.append(f"2. 필터링 시작: {len(new_articles)}건")
+        filtered = filter_news(new_articles)
+        debug_log.append(f"2. 필터 통과: {len(filtered)}건")
+
+        if not filtered:
+            return {"status": "ok", "pending_count": 0, "debug": debug_log,
+                    "collected": len(new_articles), "filtered": 0,
+                    "titles": [a["title"][:40] for a in new_articles[:5]]}
+
+        # 3. 분석 + 큐 적재
+        from news_analyzer import analyze_news
+        from news_formatter import format_news_message
+        for news in filtered:
+            analysis = analyze_news(news["title"], news.get("description", ""))
+            message = format_news_message(
+                title=news["title"],
+                published_at=news.get("published_at", ""),
+                analysis=analysis,
+                url=news["url"]
+            )
+            pending_news_queue.append({
+                "id": 0,
+                "message": message,
+                "url": news["url"],
+                "title": news["title"],
+                "queued_at": datetime.now(KST).isoformat()
+            })
+            # DB에 발송 기록
+            mark_sent_by_url(news["url"])
+
+        debug_log.append(f"3. 큐 적재: {len(filtered)}건")
+
+        return {
+            "status": "ok",
+            "pending_count": len(pending_news_queue),
+            "debug": debug_log,
+            "collected": len(new_articles),
+            "filtered": len(filtered),
+            "time": datetime.now(KST).isoformat()
+        }
+
+    except Exception as e:
+        debug_log.append(f"ERROR: {str(e)}")
+        return {"status": "error", "debug": debug_log, "error": str(e)}
 
 
 @app.get("/stats")
