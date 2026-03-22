@@ -11,9 +11,19 @@ import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
-API_KEY = os.environ.get("GEMINI_API_KEY", "")
-genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel("gemini-3-flash-preview")
+_model = None
+
+def _get_model():
+    global _model
+    if _model is None:
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if api_key:
+            genai.configure(api_key=api_key)
+            _model = genai.GenerativeModel("gemini-3-flash-preview")
+            logger.info(f"✅ Analyzer Gemini 모델 초기화 완료")
+        else:
+            logger.error("❌ GEMINI_API_KEY 미설정")
+    return _model
 
 ANALYSIS_PROMPT = """당신은 뉴스를 투자자 관점에서 분석하는 전문가입니다.
 
@@ -46,7 +56,8 @@ def analyze_news(title: str, description: str) -> dict:
     Returns:
         {sentiment, tag, summary, ai_comment, sectors, related_stocks}
     """
-    if not API_KEY:
+    m = _get_model()
+    if not m:
         return {
             "sentiment": "neutral",
             "tag": "이슈",
@@ -59,7 +70,7 @@ def analyze_news(title: str, description: str) -> dict:
     prompt = ANALYSIS_PROMPT.format(title=title, description=description)
 
     try:
-        response = model.generate_content(
+        response = m.generate_content(
             prompt,
             request_options={"timeout": 30}
         )
