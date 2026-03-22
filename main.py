@@ -218,7 +218,12 @@ async def force_check():
         from news_analyzer import analyze_news
         from news_formatter import format_news_message
         for news in filtered:
-            analysis = analyze_news(news["title"], news.get("description", ""))
+            try:
+                analysis = analyze_news(news["title"], news.get("description", ""))
+                debug_log.append(f"3. 분석 완료: {news['title'][:30]} → {analysis.get('sentiment','?')}")
+            except Exception as ae:
+                debug_log.append(f"3. 분석 오류: {news['title'][:30]} → {str(ae)}")
+                analysis = {"sentiment": "neutral", "tag": "이슈", "summary": news.get("description", "")[:200], "ai_comment": "", "sectors": [], "related_stocks": []}
             message = format_news_message(
                 title=news["title"],
                 published_at=news.get("published_at", ""),
