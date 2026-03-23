@@ -1,18 +1,18 @@
 """
 메시지 포맷팅 모듈
 - 카카오톡 발송용 메시지 생성
-- 단체방/1:1 동일 포맷
+- 두 번째 스크린샷 스타일: 제목 → 요약(감성) → AI 한줄평 → 관련 섹터 → 링크
 """
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 KST = timezone(timedelta(hours=9))
 
-# 감성별 이모지 매핑
-SENTIMENT_EMOJI = {
-    "positive": "🟢",
-    "negative": "🔴",
-    "neutral": "🟡"
+# 감성별 이모지 + 라벨
+SENTIMENT_MAP = {
+    "positive": ("🟢", "긍정"),
+    "negative": ("🔴", "부정"),
+    "neutral": ("🟡", "중립")
 }
 
 # 태그별 라벨
@@ -28,7 +28,6 @@ def format_pub_date(pub_date_str: str) -> str:
     """pubDate를 'YY.MM.DD HH:MM' 형식으로 변환"""
     try:
         dt = parsedate_to_datetime(pub_date_str)
-        # KST로 변환
         dt_kst = dt.astimezone(KST)
         return dt_kst.strftime("%y.%m.%d %H:%M")
     except Exception:
@@ -45,15 +44,18 @@ def format_news_message(
     """
     뉴스 1건을 카카오톡 메시지로 포맷팅
 
-    Args:
-        title: 기사 제목
-        published_at: 게시 시간 (RFC 2822)
-        analysis: {sentiment, tag, summary, ai_comment, sectors, related_stocks}
-        stock_info: {name, price, change} 또는 None
-        url: 기사 URL
+    포맷:
+    📰 기사 제목
+    ⏰ YY.MM.DD HH:MM
 
-    Returns:
-        카카오톡 발송용 메시지 문자열
+    ✅ 요약 (🟢긍정):
+    요약 내용...
+
+    🤖 AI 한줄평: 한줄평 내용
+
+    🏷️ 관련 섹터: 섹터1, 섹터2
+
+    🔗 링크
     """
     sentiment = analysis.get("sentiment", "neutral")
     tag = analysis.get("tag", "이슈")
@@ -61,15 +63,14 @@ def format_news_message(
     ai_comment = analysis.get("ai_comment", "")
     sectors = analysis.get("sectors", [])
 
-    emoji = SENTIMENT_EMOJI.get(sentiment, "🟡")
-    label = TAG_LABEL.get(tag, "[이슈]")
+    emoji, label_kr = SENTIMENT_MAP.get(sentiment, ("🟡", "중립"))
+    tag_label = TAG_LABEL.get(tag, "[이슈]")
     time_str = format_pub_date(published_at)
 
-    # 메시지 조립
     lines = []
 
     # 1. 태그 + 제목
-    lines.append(f"{emoji} {label} {title}")
+    lines.append(f"📰 {tag_label} {title}")
 
     # 2. 시간
     lines.append(f"⏰ {time_str}")
@@ -82,19 +83,20 @@ def format_news_message(
         lines.append("")
         lines.append(f"📈 {name} 현재가 {price}원 ({change})")
 
-    # 4. 요약
+    # 4. 요약 (감성 표시)
     lines.append("")
+    lines.append(f"✅ 요약 ({emoji}{label_kr}):")
     lines.append(summary)
 
     # 5. AI 한줄평
     if ai_comment:
         lines.append("")
-        lines.append(f"🤖 {ai_comment}")
+        lines.append(f"🤖 AI 한줄평: {ai_comment}")
 
     # 6. 관련 섹터
     if sectors:
         lines.append("")
-        lines.append(f"🏷️ {' | '.join(sectors)}")
+        lines.append(f"🏷️ 관련 섹터: {', '.join(sectors)}")
 
     # 7. 링크
     if url:
@@ -106,15 +108,8 @@ def format_news_message(
 
 def format_keyword_alert(keyword: str, title: str, published_at: str,
                          analysis: dict, stock_info: dict = None, url: str = "") -> str:
-    """
-    1:1 키워드 알림용 메시지 (트랙2)
-    단체방 포맷과 동일 + 키워드 표시
-    """
-    # 기본 메시지 생성
+    """1:1 키워드 알림용 메시지"""
     message = format_news_message(title, published_at, analysis, stock_info, url)
-
-    # 첫 줄 앞에 키워드 알림 표시 추가
     lines = message.split("\n")
     lines.insert(0, f"🔔 [키워드: {keyword}]")
-
     return "\n".join(lines)
