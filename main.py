@@ -168,28 +168,25 @@ async def root():
 @app.get("/pending-news")
 async def get_pending_news():
     """
-    단체방 발송 대기 뉴스 (MessengerBotR 폴링용)
-    가져간 뉴스는 큐에서 제거
+    단체방 발송 대기 뉴스 (읽기 전용 — 큐에서 삭제하지 않음)
+    /mark-sent 호출 시에만 큐에서 제거
     """
-    global pending_news_queue
-
     if not pending_news_queue:
         return {"news": [], "count": 0}
 
-    # 큐에서 꺼내기 (최대 3건)
     to_send = pending_news_queue[:3]
-    pending_news_queue = pending_news_queue[3:]
 
     return {
         "news": to_send,
         "count": len(to_send),
-        "remaining": len(pending_news_queue)
+        "remaining": max(0, len(pending_news_queue) - 3)
     }
 
 
 @app.post("/mark-sent")
 async def mark_sent_endpoint(data: dict):
-    """발송 완료 마킹"""
+    """발송 완료 마킹 + 큐에서 제거"""
+    global pending_news_queue
     ids = data.get("ids", [])
     urls = data.get("urls", [])
 
@@ -198,6 +195,10 @@ async def mark_sent_endpoint(data: dict):
 
     for url in urls:
         mark_sent_by_url(url)
+
+    # 발송 완료된 URL을 큐에서 제거
+    if urls:
+        pending_news_queue = [n for n in pending_news_queue if n.get("url") not in urls]
 
     return {"status": "ok", "marked": len(ids) + len(urls)}
 
