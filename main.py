@@ -289,6 +289,31 @@ async def health():
     return {"status": "ok"}
 
 
+@app.post("/clear-old")
+async def clear_old():
+    """24시간 이상 된 대기 뉴스 제거 + 큐 50건 제한"""
+    global pending_news_queue
+    before = len(pending_news_queue)
+    cutoff = (datetime.now(KST) - timedelta(hours=24)).isoformat()
+
+    # 24시간 이상 된 뉴스 제거
+    pending_news_queue = [
+        n for n in pending_news_queue
+        if n.get("queued_at", "") > cutoff
+    ]
+
+    # 50건 초과 시 오래된 것부터 제거
+    if len(pending_news_queue) > 50:
+        pending_news_queue = pending_news_queue[-50:]
+
+    removed = before - len(pending_news_queue)
+    return {
+        "status": "ok",
+        "removed": removed,
+        "remaining": len(pending_news_queue)
+    }
+
+
 @app.post("/reset-db")
 async def reset_db():
     """DB 초기화 (테스트용)"""
