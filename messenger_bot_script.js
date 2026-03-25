@@ -1,22 +1,20 @@
 /**
- * 카카오 뉴스 자동봇 - MessengerBotR 스크립트 v2
+ * 카카오 뉴스봇 통합 스크립트 v3
  *
- * [자동] Timer 기반 1분 폴링 → 서버에서 뉴스 가져와 단체방 발송
- * [수동] !봇상태, !뉴스체크 명령
- *
- * v2 변경사항:
- * - Timer 에러 방어 (try-catch로 Timer 자체가 죽지 않도록)
- * - Timer 자동 재시작 (response() 호출 시 Timer 생존 체크)
- * - 1건씩 발송 + 5초 대기 (도배 방지)
- * - 연속 실패 시 폴링 간격 점진적 증가
- * - !봇상태 진단 명령
+ * [기능 1] URL 분석 — 뉴스/유튜브 링크 붙여넣기 → AI 분석 응답
+ * [기능 2] 자동 뉴스 발송 — Timer 1분 폴링 → 단체방 자동 발송
+ * [기능 3] 명령어 — !봇상태, !뉴스체크, !재시작
  */
 
-var SERVER_URL = "https://kakao-news-auto.replit.app";
-var GROUP_ROOM_NAME = "뉴스봇 테스트방";  // ← 실제 단체방 이름으로 변경하세요!
+// ===== 서버 URL =====
+var NEWS_BOT_URL = "https://kakao-news-bot.replit.app";   // URL 분석 서버
+var NEWS_AUTO_URL = "https://kakao-news-auto.replit.app";  // 자동 수집 서버
+var GROUP_ROOM_NAME = "뉴스봇 테스트방";  // ← 실제 단체방 이름!
 
+// ===== 설정 =====
 var POLL_INTERVAL = 60000;      // 기본 1분
 var MAX_POLL_INTERVAL = 300000; // 최대 5분 (연속 실패 시)
+var MAX_RETRIES = 2;            // URL 분석 재시도 횟수
 var currentInterval = POLL_INTERVAL;
 var consecutiveErrors = 0;
 var MAX_CONSECUTIVE_ERRORS = 5;
@@ -62,13 +60,42 @@ function httpPost(url, jsonBody) {
     }
 }
 
-// ===== 핵심: 뉴스 폴링 + 발송 =====
+// ===== [기능 1] URL 분석 (kakao-news-bot) =====
+
+function analyzeUrl(url) {
+    var lastError = "";
+
+    for (var i = 0; i < MAX_RETRIES; i++) {
+        try {
+            var res = org.jsoup.Jsoup.connect(NEWS_BOT_URL + "/analyze")
+                .header("Content-Type", "application/json")
+                .requestBody(JSON.stringify({ text: url }))
+                .ignoreContentType(true)
+                .ignoreHttpErrors(true)
+                .timeout(60000)
+                .method(org.jsoup.Connection.Method.POST)
+                .execute()
+                .body();
+
+            var result = JSON.parse(res);
+            return result.response;
+
+        } catch (e) {
+            lastError = e.message;
+            java.lang.Thread.sleep(2000);
+        }
+    }
+
+    return "⚠️ 분석 서버 연결 오류: " + lastError + "\n잠시 후 다시 시도해주세요.";
+}
+
+// ===== [기능 2] 자동 뉴스 폴링 + 발송 =====
 
 function pollAndSend() {
     try {
         lastPollTime = new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date());
 
-        var res = httpGet(SERVER_URL + "/pending-news");
+        var res = httpGet(NEWS_AUTO_URL + "/pending-news");
         if (!res) {
             onPollError("서버 응답 없음");
             return;
@@ -77,7 +104,6 @@ function pollAndSend() {
         var data = JSON.parse(res);
 
         if (!data.news || data.news.length === 0) {
-            // 뉴스 없음 — 정상
             onPollSuccess();
             return;
         }
@@ -95,7 +121,7 @@ function pollAndSend() {
             // 발송 완료 마킹
             var sentUrls = [];
             if (news.url) sentUrls.push(news.url);
-            httpPost(SERVER_URL + "/mark-sent",
+            httpPost(NEWS_AUTO_URL + "/mark-sent",
                 JSON.stringify({ ids: [], urls: sentUrls }));
 
         } catch (sendError) {
@@ -112,7 +138,6 @@ function pollAndSend() {
 
 function onPollSuccess() {
     consecutiveErrors = 0;
-    // 폴링 간격 복구
     if (currentInterval !== POLL_INTERVAL) {
         currentInterval = POLL_INTERVAL;
         restartTimer();
@@ -123,7 +148,6 @@ function onPollError(msg) {
     consecutiveErrors++;
     Log.d("[뉴스봇] 연속 오류 " + consecutiveErrors + "회: " + msg);
 
-    // 연속 실패 시 폴링 간격 점진적 증가
     if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         var newInterval = Math.min(currentInterval * 2, MAX_POLL_INTERVAL);
         if (newInterval !== currentInterval) {
@@ -138,7 +162,6 @@ function onPollError(msg) {
 
 function startTimer() {
     if (timerRunning && newsTimer) {
-        Log.d("[뉴스봇] Timer 이미 실행 중");
         return;
     }
 
@@ -181,14 +204,28 @@ function ensureTimerRunning() {
 // ===== 앱 시작 시 Timer 자동 시작 =====
 startTimer();
 
-// ===== 사용자 메시지 응답 =====
+// ===== [기능 3] 사용자 메시지 응답 =====
 
 function response(room, msg, sender, isGroupChat, replier) {
-    // 매 메시지마다 Timer 생존 체크 (핵심 방어 로직)
+    // 매 메시지마다 Timer 생존 체크
     ensureTimerRunning();
 
-    // 봇 상태 확인 (상세)
-    if (msg === "!봇상태") {
+    var text = msg.trim();
+
+    // ── URL 분석 (뉴스/유튜브 링크) ──
+    if (text.indexOf("분석 ") === 0) {
+        text = text.replace("분석 ", "").trim();
+    }
+
+    if (text.indexOf("http") === 0) {
+        replier.reply("🔍 분석 중...");
+        var result = analyzeUrl(text);
+        replier.reply(result);
+        return;
+    }
+
+    // ── 봇 상태 확인 ──
+    if (text === "!봇상태") {
         var status = "📊 뉴스봇 상태\n━━━━━━━━━━\n";
         status += "⏰ Timer: " + (timerRunning ? "✅ 실행 중" : "❌ 중단") + "\n";
         status += "🔄 폴링 간격: " + (currentInterval / 1000) + "초\n";
@@ -197,9 +234,8 @@ function response(room, msg, sender, isGroupChat, replier) {
         status += "📊 총 발송: " + totalSent + "건\n";
         status += "⚠️ 연속 오류: " + consecutiveErrors + "회";
 
-        // 서버 상태도 함께 조회
         try {
-            var res = httpGet(SERVER_URL + "/stats");
+            var res = httpGet(NEWS_AUTO_URL + "/stats");
             if (res) {
                 var stats = JSON.parse(res);
                 status += "\n━━━━━━━━━━\n";
@@ -216,13 +252,13 @@ function response(room, msg, sender, isGroupChat, replier) {
         return;
     }
 
-    // 수동 뉴스 체크 (서버가 백그라운드 수집 시작 후 즉시 응답)
-    if (msg === "!뉴스체크") {
+    // ── 수동 뉴스 체크 ──
+    if (text === "!뉴스체크") {
         try {
-            var res = httpPost(SERVER_URL + "/force-check", "{}");
+            var res = httpPost(NEWS_AUTO_URL + "/force-check", "{}");
             if (res) {
                 var result = JSON.parse(res);
-                replier.reply("✅ " + result.message + "\n현재 대기: " + result.pending_count + "건");
+                replier.reply("✅ 뉴스 수집 시작!\n현재 대기: " + result.pending_count + "건");
             } else {
                 replier.reply("⚠️ 서버 응답 없음");
             }
@@ -232,15 +268,10 @@ function response(room, msg, sender, isGroupChat, replier) {
         return;
     }
 
-    // Timer 강제 재시작
-    if (msg === "!재시작") {
+    // ── Timer 강제 재시작 ──
+    if (text === "!재시작") {
         restartTimer();
         replier.reply("🔄 Timer 재시작 완료!");
-        return;
-    }
-
-    // URL 분석 요청은 kakao-news-bot이 처리
-    if (msg.indexOf("http://") === 0 || msg.indexOf("https://") === 0) {
         return;
     }
 }
