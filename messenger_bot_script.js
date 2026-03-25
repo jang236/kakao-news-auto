@@ -216,22 +216,13 @@ function response(room, msg, sender, isGroupChat, replier) {
         return;
     }
 
-    // 수동 뉴스 체크 (서버 수집에 ~100초 소요)
+    // 수동 뉴스 체크 (서버가 백그라운드 수집 시작 후 즉시 응답)
     if (msg === "!뉴스체크") {
         try {
-            replier.reply("🔄 뉴스 수집 중... (1~2분 소요)");
-            var res = org.jsoup.Jsoup.connect(SERVER_URL + "/force-check")
-                .header("Content-Type", "application/json")
-                .requestBody("{}")
-                .ignoreContentType(true)
-                .ignoreHttpErrors(true)
-                .timeout(120000)
-                .method(org.jsoup.Connection.Method.POST)
-                .execute()
-                .body();
+            var res = httpPost(SERVER_URL + "/force-check", "{}");
             if (res) {
                 var result = JSON.parse(res);
-                replier.reply("✅ 수집 완료! 대기 뉴스: " + result.pending_count + "건");
+                replier.reply("✅ " + result.message + "\n현재 대기: " + result.pending_count + "건");
             } else {
                 replier.reply("⚠️ 서버 응답 없음");
             }
