@@ -302,4 +302,35 @@ function response(room, msg, sender, isGroupChat, replier) {
         replier.reply("✅ replier.reply() 정상 작동!");
         return;
     }
+
+    // ── 키워드 뉴스 검색 (2글자 이상, 명령 아닌 일반 텍스트) ──
+    if (text.length >= 2 && text.indexOf("!") !== 0) {
+        try {
+            replier.reply("🔍 [" + text + "] 뉴스 검색 중...");
+
+            var res = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
+                .header("Content-Type", "application/json")
+                .requestBody(JSON.stringify({ keyword: text }))
+                .ignoreContentType(true)
+                .ignoreHttpErrors(true)
+                .timeout(90000)
+                .method(org.jsoup.Connection.Method.POST)
+                .execute()
+                .body();
+
+            if (res) {
+                var result = JSON.parse(res);
+                if (result.count > 0) {
+                    replier.reply(result.message);
+                } else {
+                    replier.reply("📭 [" + text + "] 관련 주요 뉴스가 없습니다.");
+                }
+            } else {
+                replier.reply("⚠️ 서버 응답 없음");
+            }
+        } catch (e) {
+            replier.reply("⚠️ 검색 오류: " + e.message);
+        }
+        return;
+    }
 }

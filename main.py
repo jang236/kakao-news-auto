@@ -203,6 +203,74 @@ async def mark_sent_endpoint(data: dict):
     return {"status": "ok", "marked": len(ids) + len(urls)}
 
 
+@app.post("/search-keyword")
+async def search_keyword(data: dict):
+    """키워드로 뉴스 검색 → AI 필터 → 분석 → 포맷된 메시지 반환"""
+    keyword = data.get("keyword", "").strip()
+    if not keyword:
+        return {"status": "error", "message": "키워드를 입력해주세요"}
+
+    try:
+        from news_collector import search_naver_news
+
+        # 1. 네이버 뉴스 검색 (최근 10건)
+        articles = search_naver_news(keyword, display=10)
+
+        if not articles:
+            return {
+                "status": "ok",
+                "keyword": keyword,
+                "count": 0,
+                "message": f"'{keyword}' 관련 뉴스를 찾지 못했습니다."
+            }
+
+        # 2. Gemini AI로 경제/주식 관련 핵심 뉴스 필터링
+        filtered = filter_news(articles)
+
+        if not filtered:
+            # 필터 통과 못하면 상위 2건만 직접 분석
+            filtered = articles[:2]
+
+        # 최대 3건만 처리
+        filtered = filtered[:3]
+
+        # 3. 각 뉴스 분석 + 포맷
+        messages = []
+        for news in filtered:
+            try:
+                analysis = analyze_news(news["title"], news.get("description", ""))
+            except Exception:
+                analysis = {
+                    "sentiment": "neutral", "tag": "이슈",
+                    "summary": news.get("description", "")[:200],
+                    "ai_comment": "", "sectors": [], "related_stocks": []
+                }
+
+            msg = format_news_message(
+                title=news["title"],
+                published_at=news.get("published_at", ""),
+                analysis=analysis,
+                url=news["url"]
+            )
+            messages.append(msg)
+
+        # 4. 헤더 + 구분선으로 합치기
+        header = f"🔍 [{keyword}] 검색 결과 ({len(messages)}건)\n{'━' * 20}"
+        full_message = header + "\n\n" + "\n\n─────────────\n\n".join(messages)
+
+        return {
+            "status": "ok",
+            "keyword": keyword,
+            "count": len(messages),
+            "searched": len(articles),
+            "message": full_message
+        }
+
+    except Exception as e:
+        logger.error(f"키워드 검색 오류: {e}")
+        return {"status": "error", "message": f"검색 오류: {str(e)}"}
+
+
 @app.post("/force-check")
 async def force_check():
     """수동 뉴스 체크 — 백그라운드 실행 후 즉시 응답"""
