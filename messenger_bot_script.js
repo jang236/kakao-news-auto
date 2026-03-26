@@ -1,20 +1,26 @@
 /**
- * 카카오 뉴스봇 통합 스크립트 v3
+ * 카카오 뉴스봇 통합 스크립트 v4
  *
- * [기능 1] URL 분석 — 뉴스/유튜브 링크 붙여넣기 → AI 분석 응답
- * [기능 2] 자동 뉴스 발송 — Timer 1분 폴링 → 단체방 자동 발송
- * [기능 3] 명령어 — !봇상태, !뉴스체크, !재시작
+ * [기능 1] URL 분석 — 링크 붙여넣기 → AI 분석 응답
+ * [기능 2] 자동 뉴스 발송 — Timer가 서버에서 뉴스 가져와 로컬 저장
+ *          → 방에 메시지 올 때 replier.reply()로 확실하게 발송
+ * [기능 3] 명령어 — !봇상태, !뉴스체크, !재시작, !테스트발송
+ *
+ * v4 변경사항:
+ * - Api.replyRoom() 대신 replier.reply() 사용 (확실한 발송)
+ * - Timer가 서버→로컬 큐로 뉴스 가져오기만 담당
+ * - response() 트리거 시 로컬 큐에서 자동 발송
  */
 
 // ===== 서버 URL =====
-var NEWS_BOT_URL = "https://kakao-news-bot.replit.app";   // URL 분석 서버
-var NEWS_AUTO_URL = "https://kakao-news-auto.replit.app";  // 자동 수집 서버
-var GROUP_ROOM_NAME = "뉴스봇 테스트방";  // ← 실제 단체방 이름!
+var NEWS_BOT_URL = "https://kakao-news-bot.replit.app";
+var NEWS_AUTO_URL = "https://kakao-news-auto.replit.app";
+var GROUP_ROOM_NAME = "뉴스봇 테스트방";
 
 // ===== 설정 =====
-var POLL_INTERVAL = 60000;      // 기본 1분
-var MAX_POLL_INTERVAL = 300000; // 최대 5분 (연속 실패 시)
-var MAX_RETRIES = 2;            // URL 분석 재시도 횟수
+var POLL_INTERVAL = 60000;
+var MAX_POLL_INTERVAL = 300000;
+var MAX_RETRIES = 2;
 var currentInterval = POLL_INTERVAL;
 var consecutiveErrors = 0;
 var MAX_CONSECUTIVE_ERRORS = 5;
@@ -25,6 +31,9 @@ var lastSendTime = null;
 var totalSent = 0;
 var timerRunning = false;
 var newsTimer = null;
+
+// ★ 로컬 뉴스 큐 (Timer가 채우고, response()가 발송)
+var localNewsQueue = [];
 
 // ===== HTTP 유틸 =====
 
@@ -60,11 +69,10 @@ function httpPost(url, jsonBody) {
     }
 }
 
-// ===== [기능 1] URL 분석 (kakao-news-bot) =====
+// ===== [기능 1] URL 분석 =====
 
 function analyzeUrl(url) {
     var lastError = "";
-
     for (var i = 0; i < MAX_RETRIES; i++) {
         try {
             var res = org.jsoup.Jsoup.connect(NEWS_BOT_URL + "/analyze")
@@ -76,22 +84,19 @@ function analyzeUrl(url) {
                 .method(org.jsoup.Connection.Method.POST)
                 .execute()
                 .body();
-
             var result = JSON.parse(res);
             return result.response;
-
         } catch (e) {
             lastError = e.message;
             java.lang.Thread.sleep(2000);
         }
     }
-
     return "⚠️ 분석 서버 연결 오류: " + lastError + "\n잠시 후 다시 시도해주세요.";
 }
 
-// ===== [기능 2] 자동 뉴스 폴링 + 발송 =====
+// ===== [기능 2] Timer: 서버 → 로컬 큐로 뉴스 가져오기 =====
 
-function pollAndSend() {
+function pollNews() {
     try {
         lastPollTime = new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date());
 
@@ -108,31 +113,53 @@ function pollAndSend() {
             return;
         }
 
-        // 1건만 발송 (도배 방지)
-        var news = data.news[0];
+        // 서버에서 가져온 뉴스를 로컬 큐에 저장
+        for (var i = 0; i < data.news.length; i++) {
+            var news = data.news[i];
+            localNewsQueue.push(news);
+            Log.d("[뉴스봇] 로컬 큐 적재: " + news.title.substring(0, 30));
 
-        try {
-            Api.replyRoom(GROUP_ROOM_NAME, news.message);
-            Log.d("[뉴스봇] 발송 완료: " + news.title.substring(0, 30));
-
-            totalSent++;
-            lastSendTime = new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date());
-
-            // 발송 완료 마킹
+            // 서버 큐에서 제거 (mark-sent)
             var sentUrls = [];
             if (news.url) sentUrls.push(news.url);
             httpPost(NEWS_AUTO_URL + "/mark-sent",
                 JSON.stringify({ ids: [], urls: sentUrls }));
-
-        } catch (sendError) {
-            Log.d("[뉴스봇] 발송 오류: " + sendError.message);
         }
 
+        Log.d("[뉴스봇] 로컬 큐: " + localNewsQueue.length + "건 대기");
         onPollSuccess();
 
     } catch (e) {
         Log.d("[뉴스봇] 폴링 오류: " + e.message);
         onPollError(e.message);
+    }
+}
+
+// ★ response() 안에서 호출 — replier.reply()로 확실한 발송
+function sendLocalNews(room, replier) {
+    if (room !== GROUP_ROOM_NAME) return;
+    if (localNewsQueue.length === 0) return;
+
+    // 1건만 발송 (도배 방지, 다음 메시지 때 또 발송)
+    var news = localNewsQueue.shift();
+
+    try {
+        replier.reply(news.message);
+        totalSent++;
+        lastSendTime = new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date());
+        Log.d("[뉴스봇] 발송 성공: " + news.title.substring(0, 30));
+    } catch (e) {
+        Log.d("[뉴스봇] 발송 실패: " + e.message);
+        // 실패하면 다시 큐 앞에 넣기
+        localNewsQueue.unshift(news);
+    }
+
+    // 남은 뉴스가 있으면 알림
+    if (localNewsQueue.length > 0) {
+        try {
+            java.lang.Thread.sleep(2000);
+            replier.reply("📬 대기 뉴스 " + localNewsQueue.length + "건 남음 (아무 메시지나 보내면 다음 뉴스 발송)");
+        } catch (e) {}
     }
 }
 
@@ -147,12 +174,10 @@ function onPollSuccess() {
 function onPollError(msg) {
     consecutiveErrors++;
     Log.d("[뉴스봇] 연속 오류 " + consecutiveErrors + "회: " + msg);
-
     if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         var newInterval = Math.min(currentInterval * 2, MAX_POLL_INTERVAL);
         if (newInterval !== currentInterval) {
             currentInterval = newInterval;
-            Log.d("[뉴스봇] 폴링 간격 증가: " + (currentInterval / 1000) + "초");
             restartTimer();
         }
     }
@@ -161,22 +186,17 @@ function onPollError(msg) {
 // ===== Timer 관리 =====
 
 function startTimer() {
-    if (timerRunning && newsTimer) {
-        return;
-    }
-
+    if (timerRunning && newsTimer) return;
     try {
         if (newsTimer) {
             try { newsTimer.cancel(); } catch (e) {}
         }
-
         newsTimer = new java.util.Timer();
         newsTimer.schedule(new java.util.TimerTask({
             run: function () {
-                pollAndSend();
+                pollNews();
             }
         }), 10000, currentInterval);
-
         timerRunning = true;
         Log.d("[뉴스봇] Timer 시작 (간격: " + (currentInterval / 1000) + "초)");
     } catch (e) {
@@ -201,18 +221,19 @@ function ensureTimerRunning() {
     }
 }
 
-// ===== 앱 시작 시 Timer 자동 시작 =====
 startTimer();
 
 // ===== [기능 3] 사용자 메시지 응답 =====
 
 function response(room, msg, sender, isGroupChat, replier) {
-    // 매 메시지마다 Timer 생존 체크
     ensureTimerRunning();
+
+    // ★ 핵심: 해당 방에 메시지가 오면 → 로컬 큐의 뉴스를 자동 발송
+    sendLocalNews(room, replier);
 
     var text = msg.trim();
 
-    // ── URL 분석 (뉴스/유튜브 링크) ──
+    // ── URL 분석 ──
     if (text.indexOf("분석 ") === 0) {
         text = text.replace("분석 ", "").trim();
     }
@@ -224,7 +245,7 @@ function response(room, msg, sender, isGroupChat, replier) {
         return;
     }
 
-    // ── 봇 상태 확인 ──
+    // ── 봇 상태 ──
     if (text === "!봇상태") {
         var status = "📊 뉴스봇 상태\n━━━━━━━━━━\n";
         status += "⏰ Timer: " + (timerRunning ? "✅ 실행 중" : "❌ 중단") + "\n";
@@ -232,6 +253,7 @@ function response(room, msg, sender, isGroupChat, replier) {
         status += "📡 마지막 폴링: " + (lastPollTime || "없음") + "\n";
         status += "📤 마지막 발송: " + (lastSendTime || "없음") + "\n";
         status += "📊 총 발송: " + totalSent + "건\n";
+        status += "📬 로컬 대기: " + localNewsQueue.length + "건\n";
         status += "⚠️ 연속 오류: " + consecutiveErrors + "회";
 
         try {
@@ -242,7 +264,7 @@ function response(room, msg, sender, isGroupChat, replier) {
                 status += "🖥️ 서버 상태\n";
                 status += "오늘 수집: " + stats.today_collected + "건\n";
                 status += "오늘 발송: " + stats.today_sent + "건\n";
-                status += "대기 중: " + stats.pending_queue + "건";
+                status += "서버 대기: " + stats.pending_queue + "건";
             }
         } catch (e) {
             status += "\n🖥️ 서버: 연결 오류";
@@ -258,7 +280,7 @@ function response(room, msg, sender, isGroupChat, replier) {
             var res = httpPost(NEWS_AUTO_URL + "/force-check", "{}");
             if (res) {
                 var result = JSON.parse(res);
-                replier.reply("✅ 뉴스 수집 시작!\n현재 대기: " + result.pending_count + "건");
+                replier.reply("✅ 뉴스 수집 시작!\n현재 서버 대기: " + result.pending_count + "건\n1분 내 자동 가져옴");
             } else {
                 replier.reply("⚠️ 서버 응답 없음");
             }
@@ -272,6 +294,12 @@ function response(room, msg, sender, isGroupChat, replier) {
     if (text === "!재시작") {
         restartTimer();
         replier.reply("🔄 Timer 재시작 완료!");
+        return;
+    }
+
+    // ── 테스트 발송 ──
+    if (text === "!테스트발송") {
+        replier.reply("✅ replier.reply() 정상 작동!");
         return;
     }
 }
