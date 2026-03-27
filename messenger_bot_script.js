@@ -240,8 +240,8 @@ function response(room, msg, sender, isGroupChat, replier) {
 
     if (text.indexOf("http") === 0) {
         replier.reply("🔍 분석 중...");
-        var result = analyzeUrl(text);
-        replier.reply(result);
+        var urlResult = analyzeUrl(text);
+        replier.reply(urlResult);
         return;
     }
 
@@ -257,9 +257,9 @@ function response(room, msg, sender, isGroupChat, replier) {
         status += "⚠️ 연속 오류: " + consecutiveErrors + "회";
 
         try {
-            var res = httpGet(NEWS_AUTO_URL + "/stats");
-            if (res) {
-                var stats = JSON.parse(res);
+            var statsRes = httpGet(NEWS_AUTO_URL + "/stats");
+            if (statsRes) {
+                var stats = JSON.parse(statsRes);
                 status += "\n━━━━━━━━━━\n";
                 status += "🖥️ 서버 상태\n";
                 status += "오늘 수집: " + stats.today_collected + "건\n";
@@ -277,10 +277,10 @@ function response(room, msg, sender, isGroupChat, replier) {
     // ── 수동 뉴스 체크 ──
     if (text === "!뉴스체크") {
         try {
-            var res = httpPost(NEWS_AUTO_URL + "/force-check", "{}");
-            if (res) {
-                var result = JSON.parse(res);
-                replier.reply("✅ 뉴스 수집 시작!\n현재 서버 대기: " + result.pending_count + "건\n1분 내 자동 가져옴");
+            var checkRes = httpPost(NEWS_AUTO_URL + "/force-check", "{}");
+            if (checkRes) {
+                var checkResult = JSON.parse(checkRes);
+                replier.reply("✅ 뉴스 수집 시작!\n현재 서버 대기: " + checkResult.pending_count + "건\n1분 내 자동 가져옴");
             } else {
                 replier.reply("⚠️ 서버 응답 없음");
             }
@@ -308,7 +308,7 @@ function response(room, msg, sender, isGroupChat, replier) {
         try {
             replier.reply("🔍 [" + text + "] 뉴스 검색 중...");
 
-            var res = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
+            var searchRes = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
                 .header("Content-Type", "application/json")
                 .requestBody(JSON.stringify({ keyword: text }))
                 .ignoreContentType(true)
@@ -318,10 +318,10 @@ function response(room, msg, sender, isGroupChat, replier) {
                 .execute()
                 .body();
 
-            if (res) {
-                var result = JSON.parse(res);
-                if (result.count > 0) {
-                    replier.reply(result.message);
+            if (searchRes) {
+                var searchResult = JSON.parse(searchRes);
+                if (searchResult.count > 0) {
+                    replier.reply(searchResult.message);
                 } else {
                     replier.reply("📭 [" + text + "] 관련 주요 뉴스가 없습니다.");
                 }
