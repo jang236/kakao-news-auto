@@ -231,8 +231,8 @@ async def search_keyword(data: dict):
             # 필터 통과 못하면 상위 2건만 직접 분석
             filtered = articles[:2]
 
-        # 최대 3건만 처리
-        filtered = filtered[:3]
+        # 최대 5건만 처리
+        filtered = filtered[:5]
 
         # 3. 각 뉴스 분석 + 포맷
         messages = []
@@ -254,16 +254,12 @@ async def search_keyword(data: dict):
             )
             messages.append(msg)
 
-        # 4. 헤더 + 구분선으로 합치기
-        header = f"🔍 [{keyword}] 검색 결과 ({len(messages)}건)\n{'━' * 20}"
-        full_message = header + "\n\n" + "\n\n─────────────\n\n".join(messages)
-
         return {
             "status": "ok",
             "keyword": keyword,
             "count": len(messages),
             "searched": len(articles),
-            "message": full_message
+            "messages": messages
         }
 
     except Exception as e:

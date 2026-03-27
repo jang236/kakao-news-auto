@@ -306,7 +306,7 @@ function response(room, msg, sender, isGroupChat, replier) {
     // ── 키워드 뉴스 검색 (2글자 이상, 명령 아닌 일반 텍스트) ──
     if (text.length >= 2 && text.indexOf("!") !== 0) {
         try {
-            replier.reply("🔍 [" + text + "] 뉴스 검색 중...");
+            replier.reply("🔍 [" + text + "] 뉴스 검색 중... (30~60초 소요)");
 
             var searchRes = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
                 .header("Content-Type", "application/json")
@@ -321,7 +321,12 @@ function response(room, msg, sender, isGroupChat, replier) {
             if (searchRes) {
                 var searchResult = JSON.parse(searchRes);
                 if (searchResult.count > 0) {
-                    replier.reply(searchResult.message);
+                    replier.reply("📰 [" + text + "] 검색 결과: " + searchResult.count + "건");
+                    // 각 기사를 개별 메시지로 발송
+                    for (var idx = 0; idx < searchResult.messages.length; idx++) {
+                        java.lang.Thread.sleep(1500);
+                        replier.reply(searchResult.messages[idx]);
+                    }
                 } else {
                     replier.reply("📭 [" + text + "] 관련 주요 뉴스가 없습니다.");
                 }
