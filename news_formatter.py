@@ -69,8 +69,8 @@ def format_news_message(
 
     lines = []
 
-    # 1. 태그 + 제목
-    lines.append(f"📰 {tag_label} {title}")
+    # 1. 제목
+    lines.append(f"📰 {title}")
 
     # 2. 시간
     lines.append(f"⏰ {time_str}")

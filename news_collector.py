@@ -49,11 +49,13 @@ EXCLUDE_KEYWORDS = [
 
 
 def clean_html_tags(text: str) -> str:
-    """HTML 태그 제거"""
+    """HTML 태그 및 엔티티 제거"""
     if not text:
         return ""
+    import html
     clean = re.compile('<.*?>')
-    return re.sub(clean, '', text).strip()
+    text = re.sub(clean, '', text).strip()
+    return html.unescape(text)  # &quot; → ", &amp; → & 등
 
 
 def parse_pub_date(pub_date_str: str) -> datetime:
