@@ -249,8 +249,8 @@ async def search_keyword(data: dict):
                 "message": f"'{keyword}' 관련 뉴스를 찾지 못했습니다."
             }
 
-        # 2. Gemini AI로 핵심 이슈만 선별
-        filtered = filter_news(articles)
+        # 2. Gemini AI로 핵심 이슈만 선별 (키워드 관련성 체크)
+        filtered = filter_news(articles, keyword=keyword)
 
         if not filtered:
             # 필터 통과 못하면 상위 3건만 직접 분석
