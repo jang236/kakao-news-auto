@@ -219,11 +219,27 @@ async def search_keyword(data: dict):
 
         # URL 기준 중복 제거 (최신순 우선)
         seen_urls = set()
-        articles = []
+        combined = []
         for a in articles_by_date + articles_by_sim:
             if a["url"] not in seen_urls:
                 seen_urls.add(a["url"])
-                articles.append(a)
+                combined.append(a)
+
+        # 3일 이내 기사만 필터 (관련도순에서 오래된 기사 제거)
+        from news_collector import parse_pub_date
+        from datetime import datetime, timedelta, timezone
+        kst = timezone(timedelta(hours=9))
+        cutoff = datetime.now(kst) - timedelta(days=3)
+        articles = []
+        for a in combined:
+            try:
+                pub_time = parse_pub_date(a.get("published_at", ""))
+                if pub_time.tzinfo is None:
+                    pub_time = pub_time.replace(tzinfo=kst)
+                if pub_time >= cutoff:
+                    articles.append(a)
+            except Exception:
+                articles.append(a)  # 날짜 파싱 실패 시 포함
 
         if not articles:
             return {
