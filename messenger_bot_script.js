@@ -14,7 +14,7 @@
 
 // ===== 서버 URL =====
 var NEWS_BOT_URL = "https://kakao-news-bot.replit.app";
-var NEWS_AUTO_URL = "https://kakao-news-auto.replit.app";
+var NEWS_AUTO_URL = "https://kakao-news-auto-v-2.replit.app";
 var GROUP_ROOM_NAME = "뉴스봇 테스트방";
 
 // ===== 설정 =====
@@ -321,12 +321,16 @@ function response(room, msg, sender, isGroupChat, replier) {
             if (searchRes) {
                 var searchResult = JSON.parse(searchRes);
                 if (searchResult.count > 0) {
-                    replier.reply("📰 [" + text + "] 검색 결과: " + searchResult.count + "건");
-                    // 각 기사를 개별 메시지로 발송
+                    // 모든 기사를 하나의 메시지로 합쳐서 발송
+                    var allMsg = "📰 [" + text + "] 검색 결과: " + searchResult.count + "건\n";
+                    allMsg += "━━━━━━━━━━━━━━━━━━\n\n";
                     for (var idx = 0; idx < searchResult.messages.length; idx++) {
-                        java.lang.Thread.sleep(1500);
-                        replier.reply(searchResult.messages[idx]);
+                        allMsg += searchResult.messages[idx];
+                        if (idx < searchResult.messages.length - 1) {
+                            allMsg += "\n\n━━━━━━━━━━━━━━━━━━\n\n";
+                        }
                     }
+                    replier.reply(allMsg);
                 } else {
                     replier.reply("📭 [" + text + "] 관련 주요 뉴스가 없습니다.");
                 }

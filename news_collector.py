@@ -74,11 +74,11 @@ def is_excluded(title: str) -> bool:
     return False
 
 
-def search_naver_news(query: str, display: int = 10) -> list:
-    """네이버 검색 API로 뉴스 검색"""
+def search_naver_news(query: str, display: int = 10, sort: str = "date") -> list:
+    """네이버 검색 API로 뉴스 검색 (sort: date=최신순, sim=관련도순)"""
     try:
         encoded_query = quote(query)
-        url = f"https://openapi.naver.com/v1/search/news.json?query={encoded_query}&display={display}&start=1&sort=date"
+        url = f"https://openapi.naver.com/v1/search/news.json?query={encoded_query}&display={display}&start=1&sort={sort}"
 
         headers = {
             "X-Naver-Client-Id": NAVER_CLIENT_ID,

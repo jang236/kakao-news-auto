@@ -213,8 +213,17 @@ async def search_keyword(data: dict):
     try:
         from news_collector import search_naver_news
 
-        # 1. 네이버 뉴스 검색 (최근 10건)
-        articles = search_naver_news(keyword, display=10)
+        # 1. 네이버 뉴스 검색: 최신순 20건 + 관련도순 20건
+        articles_by_date = search_naver_news(keyword, display=20, sort="date")
+        articles_by_sim = search_naver_news(keyword, display=20, sort="sim")
+
+        # URL 기준 중복 제거 (최신순 우선)
+        seen_urls = set()
+        articles = []
+        for a in articles_by_date + articles_by_sim:
+            if a["url"] not in seen_urls:
+                seen_urls.add(a["url"])
+                articles.append(a)
 
         if not articles:
             return {
@@ -224,12 +233,12 @@ async def search_keyword(data: dict):
                 "message": f"'{keyword}' 관련 뉴스를 찾지 못했습니다."
             }
 
-        # 2. Gemini AI로 경제/주식 관련 핵심 뉴스 필터링
+        # 2. Gemini AI로 핵심 이슈만 선별
         filtered = filter_news(articles)
 
         if not filtered:
-            # 필터 통과 못하면 상위 2건만 직접 분석
-            filtered = articles[:2]
+            # 필터 통과 못하면 상위 3건만 직접 분석
+            filtered = articles[:3]
 
         # 최대 5건만 처리
         filtered = filtered[:5]
