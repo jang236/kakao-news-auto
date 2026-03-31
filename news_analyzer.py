@@ -72,7 +72,7 @@ def analyze_news(title: str, description: str) -> dict:
     try:
         response = m.generate_content(
             prompt,
-            request_options={"timeout": 30}
+            request_options={"timeout": 15}
         )
         result_text = response.text.strip()
 

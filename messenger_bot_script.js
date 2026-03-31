@@ -313,7 +313,7 @@ function response(room, msg, sender, isGroupChat, replier) {
                 .requestBody(JSON.stringify({ keyword: text }))
                 .ignoreContentType(true)
                 .ignoreHttpErrors(true)
-                .timeout(90000)
+                .timeout(120000)
                 .method(org.jsoup.Connection.Method.POST)
                 .execute()
                 .body();
