@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Gemini 설정
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
 genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel("gemini-3-flash-preview")
+model = genai.GenerativeModel("gemini-3-pro")
 
 # ===== 프롬프트 =====
 

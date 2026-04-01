@@ -303,14 +303,20 @@ function response(room, msg, sender, isGroupChat, replier) {
         return;
     }
 
-    // ── 키워드 뉴스 검색 (2글자 이상, 명령 아닌 일반 텍스트) ──
-    if (text.length >= 2 && text.indexOf("!") !== 0) {
+    // ── 키워드 뉴스 검색 ("검색"으로 시작해야 작동) ──
+    if (text.indexOf("검색") === 0) {
+        var keyword = text.substring(2).trim();
+        if (keyword.length < 1) {
+            replier.reply("📌 사용법: 검색 환율\n키워드를 입력해주세요.");
+            return;
+        }
+
         try {
-            replier.reply("🔍 [" + text + "] 뉴스 검색 중... (30~60초 소요)");
+            replier.reply("🔍 [" + keyword + "] 뉴스 검색 중... (20~30초 소요)");
 
             var searchRes = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
                 .header("Content-Type", "application/json")
-                .requestBody(JSON.stringify({ keyword: text }))
+                .requestBody(JSON.stringify({ keyword: keyword }))
                 .ignoreContentType(true)
                 .ignoreHttpErrors(true)
                 .timeout(120000)
@@ -321,18 +327,16 @@ function response(room, msg, sender, isGroupChat, replier) {
             if (searchRes) {
                 var searchResult = JSON.parse(searchRes);
                 if (searchResult.count > 0) {
-                    // 모든 기사를 하나의 메시지로 합쳐서 발송
-                    var allMsg = "📰 [" + text + "] 검색 결과: " + searchResult.count + "건\n";
-                    allMsg += "━━━━━━━━━━━━━━━━━━\n\n";
+                    // 헤더 먼저 발송
+                    replier.reply("📰 [" + keyword + "] 검색 결과: " + searchResult.count + "건");
+                    
+                    // 각 기사를 개별 메시지로 발송
                     for (var idx = 0; idx < searchResult.messages.length; idx++) {
-                        allMsg += searchResult.messages[idx];
-                        if (idx < searchResult.messages.length - 1) {
-                            allMsg += "\n\n━━━━━━━━━━━━━━━━━━\n\n";
-                        }
+                        java.lang.Thread.sleep(1500);
+                        replier.reply(searchResult.messages[idx]);
                     }
-                    replier.reply(allMsg);
                 } else {
-                    replier.reply("📭 [" + text + "] 관련 주요 뉴스가 없습니다.");
+                    replier.reply("📭 [" + keyword + "] 관련 주요 뉴스가 없습니다.");
                 }
             } else {
                 replier.reply("⚠️ 서버 응답 없음");
