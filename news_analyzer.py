@@ -19,7 +19,7 @@ def _get_model():
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if api_key:
             genai.configure(api_key=api_key)
-            _model = genai.GenerativeModel("gemini-3-pro")
+            _model = genai.GenerativeModel("gemini-3-pro-preview")
             logger.info(f"✅ Analyzer Gemini 모델 초기화 완료")
         else:
             logger.error("❌ GEMINI_API_KEY 미설정")
