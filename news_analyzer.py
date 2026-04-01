@@ -72,7 +72,7 @@ def analyze_news(title: str, description: str) -> dict:
     try:
         response = m.generate_content(
             prompt,
-            request_options={"timeout": 15}
+            request_options={"timeout": 25}
         )
         result_text = response.text.strip()
 
@@ -110,7 +110,7 @@ def analyze_news(title: str, description: str) -> dict:
             "sentiment": "neutral",
             "tag": "이슈",
             "summary": description[:200] if description else title,
-            "ai_comment": f"분석오류: {type(e).__name__}: {str(e)[:50]}",
+            "ai_comment": "잠시 후 다시 시도해주세요",
             "sectors": [],
             "related_stocks": []
         }
