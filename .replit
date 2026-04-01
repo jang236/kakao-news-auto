@@ -1,6 +1,6 @@
-modules = ["python-3.11", "python-launcher"]
-run = "pip install -r requirements.txt; python -m uvicorn main:app --host 0.0.0.0 --port 8080"
+modules = ["python-3.11"]
+run = "pip install -r requirements.txt && python -m uvicorn main:app --host 0.0.0.0 --port 8080"
 entrypoint = "main.py"
 
 [deployment]
-run = ["sh", "-c", "pip install -r requirements.txt; python -m uvicorn main:app --host 0.0.0.0 --port 8080"]
+run = "pip install -r requirements.txt && python -m uvicorn main:app --host 0.0.0.0 --port 8080"
