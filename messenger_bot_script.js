@@ -14,7 +14,7 @@
 
 // ===== 서버 URL =====
 var NEWS_BOT_URL = "https://kakao-news-bot.replit.app";
-var NEWS_AUTO_URL = "https://kakao-news-auto-v-2.replit.app";
+var NEWS_AUTO_URL = "https://kakao-news-auto-v-4.replit.app";
 var GROUP_ROOM_NAME = "뉴스봇 테스트방";
 
 // ===== 설정 =====
@@ -311,39 +311,73 @@ function response(room, msg, sender, isGroupChat, replier) {
             return;
         }
 
-        try {
-            replier.reply("🔍 [" + keyword + "] 뉴스 검색 중... (20~30초 소요)");
+        replier.reply("🔍 [" + keyword + "] 뉴스 검색 중... (20~30초 소요)");
 
-            var searchRes = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
-                .header("Content-Type", "application/json")
-                .requestBody(JSON.stringify({ keyword: keyword }))
-                .ignoreContentType(true)
-                .ignoreHttpErrors(true)
-                .timeout(120000)
-                .method(org.jsoup.Connection.Method.POST)
-                .execute()
-                .body();
+        // ★ 백그라운드 스레드에서 실행 (response() 즉시 반환 → 안드로이드 강제종료 방지)
+        var searchRoom = room;
+        var searchKeyword = keyword;
+        new java.lang.Thread({
+            run: function () {
+                try {
+                    var searchRes = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
+                        .header("Content-Type", "application/json")
+                        .requestBody(JSON.stringify({ keyword: searchKeyword }))
+                        .ignoreContentType(true)
+                        .ignoreHttpErrors(true)
+                        .timeout(90000)
+                        .method(org.jsoup.Connection.Method.POST)
+                        .execute()
+                        .body();
 
-            if (searchRes) {
-                var searchResult = JSON.parse(searchRes);
-                if (searchResult.count > 0) {
-                    // 헤더 먼저 발송
-                    replier.reply("📰 [" + keyword + "] 검색 결과: " + searchResult.count + "건");
-                    
-                    // 각 기사를 개별 메시지로 발송
-                    for (var idx = 0; idx < searchResult.messages.length; idx++) {
-                        java.lang.Thread.sleep(1500);
-                        replier.reply(searchResult.messages[idx]);
+                    if (searchRes) {
+                        var searchResult = JSON.parse(searchRes);
+                        if (searchResult.count > 0) {
+                            Api.replyRoom(searchRoom, "📰 [" + searchKeyword + "] 검색 결과: " + searchResult.count + "건");
+                            for (var idx = 0; idx < searchResult.messages.length; idx++) {
+                                java.lang.Thread.sleep(1500);
+                                Api.replyRoom(searchRoom, searchResult.messages[idx]);
+                            }
+                        } else {
+                            Api.replyRoom(searchRoom, "📭 [" + searchKeyword + "] 관련 주요 뉴스가 없습니다.");
+                        }
+                    } else {
+                        Api.replyRoom(searchRoom, "⚠️ 서버 응답 없음 (E01)");
                     }
-                } else {
-                    replier.reply("📭 [" + keyword + "] 관련 주요 뉴스가 없습니다.");
+                } catch (e) {
+                    Log.d("[뉴스봇] 검색 오류: " + e.message);
+                    // 1번 재시도
+                    try {
+                        java.lang.Thread.sleep(3000);
+                        var retryRes = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
+                            .header("Content-Type", "application/json")
+                            .requestBody(JSON.stringify({ keyword: searchKeyword }))
+                            .ignoreContentType(true)
+                            .ignoreHttpErrors(true)
+                            .timeout(90000)
+                            .method(org.jsoup.Connection.Method.POST)
+                            .execute()
+                            .body();
+
+                        if (retryRes) {
+                            var retryResult = JSON.parse(retryRes);
+                            if (retryResult.count > 0) {
+                                Api.replyRoom(searchRoom, "📰 [" + searchKeyword + "] 검색 결과: " + retryResult.count + "건");
+                                for (var idx = 0; idx < retryResult.messages.length; idx++) {
+                                    java.lang.Thread.sleep(1500);
+                                    Api.replyRoom(searchRoom, retryResult.messages[idx]);
+                                }
+                            } else {
+                                Api.replyRoom(searchRoom, "📭 [" + searchKeyword + "] 관련 주요 뉴스가 없습니다.");
+                            }
+                        } else {
+                            Api.replyRoom(searchRoom, "⚠️ 검색 실패. 잠시 후 다시 시도해주세요. (E01)");
+                        }
+                    } catch (e2) {
+                        Api.replyRoom(searchRoom, "⚠️ 검색 오류가 계속됩니다. 잠시 후 다시 시도해주세요. (E04)");
+                    }
                 }
-            } else {
-                replier.reply("⚠️ 서버 응답 없음");
             }
-        } catch (e) {
-            replier.reply("⚠️ 검색 오류: " + e.message);
-        }
+        }).start();
         return;
     }
 }
