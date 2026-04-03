@@ -216,9 +216,9 @@ async def search_keyword(data: dict):
     try:
         from news_collector import search_naver_news
 
-        # 1. 네이버 뉴스 검색: 최신순 20건 + 관련도순 20건
-        articles_by_date = search_naver_news(keyword, display=20, sort="date")
-        articles_by_sim = search_naver_news(keyword, display=20, sort="sim")
+        # 1. 네이버 뉴스 검색: 최신순 10건 + 관련도순 10건 (속도 최적화)
+        articles_by_date = search_naver_news(keyword, display=10, sort="date")
+        articles_by_sim = search_naver_news(keyword, display=10, sort="sim")
 
         if not articles_by_date and not articles_by_sim:
             return {"status": "error", "message": f"뉴스 검색에 실패했습니다. (E01)"}
@@ -255,12 +255,15 @@ async def search_keyword(data: dict):
                 "message": f"'{keyword}' 관련 최근 3일 이내 뉴스를 찾지 못했습니다."
             }
 
+        # Gemini 필터에 최대 15건만 전달 (속도 최적화)
+        articles_for_filter = articles[:15]
+
         # 2. Gemini AI로 핵심 이슈만 선별 (별도 스레드에서 실행)
         loop = asyncio.get_event_loop()
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
         filtered = await loop.run_in_executor(
-            executor, lambda: filter_news(articles, keyword=keyword)
+            executor, lambda: filter_news(articles_for_filter, keyword=keyword)
         )
 
         if not filtered:
