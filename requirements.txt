@@ -1,5 +1,5 @@
 fastapi==0.115.0
 uvicorn==0.30.0
 requests==2.32.0
-google-generativeai==0.8.0
+google-genai>=1.56.0
 apscheduler==3.10.4

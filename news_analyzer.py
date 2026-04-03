@@ -5,25 +5,26 @@ Gemini 뉴스 분석 모듈
 """
 import os
 import json
-import re
 import logging
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-_model = None
+# Gemini 설정
+_client = None
+MODEL_NAME = "gemini-3-flash-preview"
 
-def _get_model():
-    global _model
-    if _model is None:
+def _get_client():
+    global _client
+    if _client is None:
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if api_key:
-            genai.configure(api_key=api_key)
-            _model = genai.GenerativeModel("gemini-3-flash-preview")
-            logger.info(f"✅ Analyzer Gemini 모델 초기화 완료")
+            _client = genai.Client(api_key=api_key)
+            logger.info("✅ Analyzer Gemini 클라이언트 초기화 완료")
         else:
             logger.error("❌ GEMINI_API_KEY 미설정")
-    return _model
+    return _client
 
 ANALYSIS_PROMPT = """당신은 뉴스를 투자자 관점에서 분석하는 전문가입니다.
 
@@ -56,13 +57,13 @@ def analyze_news(title: str, description: str) -> dict:
     Returns:
         {sentiment, tag, summary, ai_comment, sectors, related_stocks}
     """
-    m = _get_model()
-    if not m:
+    client = _get_client()
+    if not client:
         return {
             "sentiment": "neutral",
             "tag": "이슈",
             "summary": description[:200] if description else title,
-            "ai_comment": "AI 분석 불가 (API 키 미설정)",
+            "ai_comment": "AI 분석 불가 (API 키 미설정) (E04)",
             "sectors": [],
             "related_stocks": []
         }
@@ -70,17 +71,14 @@ def analyze_news(title: str, description: str) -> dict:
     prompt = ANALYSIS_PROMPT.format(title=title, description=description)
 
     try:
-        response = m.generate_content(
-            prompt,
-            request_options={"timeout": 25}
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
         )
         result_text = response.text.strip()
-
-        # ```json ... ``` 형식 처리
-        if "```" in result_text:
-            json_match = re.search(r'```(?:json)?\s*(.*?)```', result_text, re.DOTALL)
-            if json_match:
-                result_text = json_match.group(1).strip()
 
         result = json.loads(result_text)
 
@@ -95,22 +93,22 @@ def analyze_news(title: str, description: str) -> dict:
         }
 
     except json.JSONDecodeError as e:
-        logger.error(f"분석 JSON 파싱 오류: {e}\n원문: {result_text[:200]}")
+        logger.error(f"[E05] 분석 JSON 파싱 오류: {e}\n원문: {result_text[:200]}")
         return {
             "sentiment": "neutral",
             "tag": "이슈",
             "summary": description[:200] if description else title,
-            "ai_comment": f"JSON파싱오류: {str(e)[:50]}",
+            "ai_comment": "응답 처리 중 오류 (E05)",
             "sectors": [],
             "related_stocks": []
         }
     except Exception as e:
-        logger.error(f"뉴스 분석 오류: {type(e).__name__}: {e}")
+        logger.error(f"[E04] 뉴스 분석 오류: {type(e).__name__}: {e}")
         return {
             "sentiment": "neutral",
             "tag": "이슈",
             "summary": description[:200] if description else title,
-            "ai_comment": "잠시 후 다시 시도해주세요",
+            "ai_comment": "AI 분석 오류, 잠시 후 다시 시도해주세요 (E04)",
             "sectors": [],
             "related_stocks": []
         }

@@ -220,6 +220,9 @@ async def search_keyword(data: dict):
         articles_by_date = search_naver_news(keyword, display=20, sort="date")
         articles_by_sim = search_naver_news(keyword, display=20, sort="sim")
 
+        if not articles_by_date and not articles_by_sim:
+            return {"status": "error", "message": f"뉴스 검색에 실패했습니다. (E01)"}
+
         # URL 기준 중복 제거 (최신순 우선)
         seen_urls = set()
         combined = []
@@ -249,11 +252,16 @@ async def search_keyword(data: dict):
                 "status": "ok",
                 "keyword": keyword,
                 "count": 0,
-                "message": f"'{keyword}' 관련 뉴스를 찾지 못했습니다."
+                "message": f"'{keyword}' 관련 최근 3일 이내 뉴스를 찾지 못했습니다."
             }
 
-        # 2. Gemini AI로 핵심 이슈만 선별 (키워드 관련성 체크)
-        filtered = filter_news(articles, keyword=keyword)
+        # 2. Gemini AI로 핵심 이슈만 선별 (별도 스레드에서 실행)
+        loop = asyncio.get_event_loop()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+        filtered = await loop.run_in_executor(
+            executor, lambda: filter_news(articles, keyword=keyword)
+        )
 
         if not filtered:
             filtered = articles[:3]
@@ -261,10 +269,7 @@ async def search_keyword(data: dict):
         # 최대 3건만 처리 (속도 최적화)
         filtered = filtered[:3]
 
-        # 3. 각 뉴스 병렬 분석 (순차→병렬 변경)
-        loop = asyncio.get_event_loop()
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
-
+        # 3. 각 뉴스 병렬 분석
         def _analyze_one(news):
             try:
                 return analyze_news(news["title"], news.get("description", ""))
@@ -272,17 +277,16 @@ async def search_keyword(data: dict):
                 return {
                     "sentiment": "neutral", "tag": "이슈",
                     "summary": news.get("description", "")[:200],
-                    "ai_comment": "", "sectors": [], "related_stocks": []
+                    "ai_comment": "AI 분석 오류 (E04)", "sectors": [], "related_stocks": []
                 }
 
-        # 모든 분석을 동시에 실행 (최대 30초)
         analysis_tasks = [
             loop.run_in_executor(executor, _analyze_one, news)
             for news in filtered
         ]
         analyses = await asyncio.wait_for(
             asyncio.gather(*analysis_tasks, return_exceptions=True),
-            timeout=45
+            timeout=60
         )
 
         # 4. 포맷
@@ -291,7 +295,7 @@ async def search_keyword(data: dict):
             analysis = analyses[i] if not isinstance(analyses[i], Exception) else {
                 "sentiment": "neutral", "tag": "이슈",
                 "summary": news.get("description", "")[:200],
-                "ai_comment": "", "sectors": [], "related_stocks": []
+                "ai_comment": "AI 분석 오류 (E04)", "sectors": [], "related_stocks": []
             }
 
             msg = format_news_message(
@@ -311,11 +315,11 @@ async def search_keyword(data: dict):
         }
 
     except asyncio.TimeoutError:
-        logger.warning(f"키워드 검색 타임아웃: {keyword}")
-        return {"status": "error", "message": "분석 시간이 초과되었습니다. 다시 시도해주세요."}
+        logger.warning(f"[E03] 키워드 검색 타임아웃: {keyword}")
+        return {"status": "error", "message": "분석 시간이 초과되었습니다. 다시 시도해주세요. (E03)"}
     except Exception as e:
-        logger.error(f"키워드 검색 오류: {e}")
-        return {"status": "error", "message": f"검색 오류: {str(e)}"}
+        logger.error(f"[E04] 키워드 검색 오류: {e}")
+        return {"status": "error", "message": f"검색 중 오류가 발생했습니다. (E04)"}
 
 
 @app.post("/force-check")

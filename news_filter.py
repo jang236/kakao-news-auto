@@ -7,15 +7,26 @@
 import os
 import json
 import logging
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from db import get_recent_sent_titles
 
 logger = logging.getLogger(__name__)
 
 # Gemini 설정
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
-genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel("gemini-3-flash-preview")
+MODEL_NAME = "gemini-3-flash-preview"
+
+# 클라이언트 (lazy init)
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None and API_KEY:
+        _client = genai.Client(api_key=API_KEY)
+        logger.info("✅ Filter Gemini 클라이언트 초기화 완료")
+    return _client
+
 
 # ===== 프롬프트 =====
 
@@ -69,8 +80,9 @@ def filter_news(news_list: list, keyword: str = "") -> list:
     if not news_list:
         return []
 
-    if not API_KEY:
-        logger.warning("GEMINI_API_KEY가 설정되지 않았습니다. 전체 뉴스를 반환합니다.")
+    client = _get_client()
+    if not client:
+        logger.warning("[E02] GEMINI_API_KEY가 설정되지 않았습니다. 전체 뉴스를 반환합니다.")
         return news_list[:3]
 
     # 최근 발송 뉴스 제목 가져오기
@@ -110,19 +122,14 @@ def filter_news(news_list: list, keyword: str = "") -> list:
     )
 
     try:
-        response = model.generate_content(
-            prompt,
-            request_options={"timeout": 30}
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
         )
         result_text = response.text.strip()
-
-        # JSON 파싱
-        # ```json ... ``` 형식 처리
-        if "```" in result_text:
-            import re
-            json_match = re.search(r'```(?:json)?\s*(.*?)```', result_text, re.DOTALL)
-            if json_match:
-                result_text = json_match.group(1).strip()
 
         result = json.loads(result_text)
         selected_indices = result.get("selected", [])
@@ -141,11 +148,11 @@ def filter_news(news_list: list, keyword: str = "") -> list:
         return filtered
 
     except json.JSONDecodeError as e:
-        logger.error(f"Gemini 응답 JSON 파싱 오류: {e}")
-        logger.error(f"응답 원문: {result_text}")
+        logger.error(f"[E05] Gemini 응답 JSON 파싱 오류: {e}")
+        logger.error(f"[E05] 응답 원문: {result_text[:300]}")
         return news_list[:3]
     except Exception as e:
-        logger.error(f"Gemini 필터링 오류: {e}")
+        logger.error(f"[E02] Gemini 필터링 오류: {type(e).__name__}: {e}")
         return news_list[:3]
 
 
@@ -154,21 +161,19 @@ def get_dynamic_keywords() -> list:
     Gemini에게 이번 주 주목할 키워드 요청
     매주 월요일 07:00에 호출
     """
-    if not API_KEY:
+    client = _get_client()
+    if not client:
         return []
 
     try:
-        response = model.generate_content(
-            DYNAMIC_KEYWORD_PROMPT,
-            request_options={"timeout": 30}
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=DYNAMIC_KEYWORD_PROMPT,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
         )
         result_text = response.text.strip()
-
-        if "```" in result_text:
-            import re
-            json_match = re.search(r'```(?:json)?\s*(.*?)```', result_text, re.DOTALL)
-            if json_match:
-                result_text = json_match.group(1).strip()
 
         result = json.loads(result_text)
         keywords = result.get("keywords", [])
@@ -176,5 +181,5 @@ def get_dynamic_keywords() -> list:
         return keywords
 
     except Exception as e:
-        logger.error(f"동적 키워드 생성 오류: {e}")
+        logger.error(f"[E02] 동적 키워드 생성 오류: {e}")
         return []
