@@ -42,6 +42,7 @@ function httpGet(url) {
         var res = org.jsoup.Jsoup.connect(url)
             .ignoreContentType(true)
             .ignoreHttpErrors(true)
+            .header("Connection", "keep-alive")
             .timeout(15000)
             .method(org.jsoup.Connection.Method.GET)
             .execute();
@@ -56,6 +57,7 @@ function httpPost(url, jsonBody) {
     try {
         var res = org.jsoup.Jsoup.connect(url)
             .header("Content-Type", "application/json")
+            .header("Connection", "keep-alive")
             .requestBody(jsonBody)
             .ignoreContentType(true)
             .ignoreHttpErrors(true)
@@ -69,29 +71,55 @@ function httpPost(url, jsonBody) {
     }
 }
 
-// ===== [기능 1] URL 분석 =====
-
-function analyzeUrl(url) {
-    var lastError = "";
-    for (var i = 0; i < MAX_RETRIES; i++) {
-        try {
-            var res = org.jsoup.Jsoup.connect(NEWS_BOT_URL + "/analyze")
-                .header("Content-Type", "application/json")
-                .requestBody(JSON.stringify({ text: url }))
-                .ignoreContentType(true)
-                .ignoreHttpErrors(true)
-                .timeout(60000)
-                .method(org.jsoup.Connection.Method.POST)
-                .execute()
-                .body();
-            var result = JSON.parse(res);
-            return result.response;
-        } catch (e) {
-            lastError = e.message;
-            java.lang.Thread.sleep(2000);
-        }
+// ★ 서버 워밍업 — 무거운 요청 전에 서버를 깨움
+function warmupServer(serverUrl) {
+    try {
+        org.jsoup.Jsoup.connect(serverUrl + "/health")
+            .ignoreContentType(true)
+            .ignoreHttpErrors(true)
+            .timeout(10000)
+            .method(org.jsoup.Connection.Method.GET)
+            .execute();
+        return true;
+    } catch (e) {
+        Log.d("[뉴스봇] 워밍업 실패: " + e.message);
+        return false;
     }
-    return "⚠️ 분석 서버 연결 오류: " + lastError + "\n잠시 후 다시 시도해주세요.";
+}
+
+// ===== [기능 1] URL 분석 (백그라운드 스레드) =====
+
+function analyzeUrlAsync(analyzeRoom, targetUrl) {
+    new java.lang.Thread({
+        run: function () {
+            // 서버 워밍업
+            warmupServer(NEWS_BOT_URL);
+
+            var lastError = "";
+            for (var i = 0; i < MAX_RETRIES; i++) {
+                try {
+                    var res = org.jsoup.Jsoup.connect(NEWS_BOT_URL + "/analyze")
+                        .header("Content-Type", "application/json")
+                        .header("Connection", "keep-alive")
+                        .requestBody(JSON.stringify({ text: targetUrl }))
+                        .ignoreContentType(true)
+                        .ignoreHttpErrors(true)
+                        .timeout(60000)
+                        .method(org.jsoup.Connection.Method.POST)
+                        .execute()
+                        .body();
+                    var result = JSON.parse(res);
+                    Api.replyRoom(analyzeRoom, result.response);
+                    return;
+                } catch (e) {
+                    lastError = e.message;
+                    Log.d("[뉴스봇] URL 분석 시도 " + (i+1) + " 실패: " + e.message);
+                    java.lang.Thread.sleep(3000);
+                }
+            }
+            Api.replyRoom(analyzeRoom, "⚠️ 분석 서버 연결 오류 (E04)\n잠시 후 다시 시도해주세요.");
+        }
+    }).start();
 }
 
 // ===== [기능 2] Timer: 서버 → 로컬 큐로 뉴스 가져오기 =====
@@ -239,9 +267,8 @@ function response(room, msg, sender, isGroupChat, replier) {
     }
 
     if (text.indexOf("http") === 0) {
-        replier.reply("🔍 분석 중...");
-        var urlResult = analyzeUrl(text);
-        replier.reply(urlResult);
+        replier.reply("🔍 분석 중... (10~20초 소요)");
+        analyzeUrlAsync(room, text);
         return;
     }
 
@@ -318,38 +345,14 @@ function response(room, msg, sender, isGroupChat, replier) {
         var searchKeyword = keyword;
         new java.lang.Thread({
             run: function () {
-                try {
-                    var searchRes = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
-                        .header("Content-Type", "application/json")
-                        .requestBody(JSON.stringify({ keyword: searchKeyword }))
-                        .ignoreContentType(true)
-                        .ignoreHttpErrors(true)
-                        .timeout(90000)
-                        .method(org.jsoup.Connection.Method.POST)
-                        .execute()
-                        .body();
+                // 서버 워밍업 (cold start 방지)
+                warmupServer(NEWS_AUTO_URL);
 
-                    if (searchRes) {
-                        var searchResult = JSON.parse(searchRes);
-                        if (searchResult.count > 0) {
-                            Api.replyRoom(searchRoom, "📰 [" + searchKeyword + "] 검색 결과: " + searchResult.count + "건");
-                            for (var idx = 0; idx < searchResult.messages.length; idx++) {
-                                java.lang.Thread.sleep(1500);
-                                Api.replyRoom(searchRoom, searchResult.messages[idx]);
-                            }
-                        } else {
-                            Api.replyRoom(searchRoom, "📭 [" + searchKeyword + "] 관련 주요 뉴스가 없습니다.");
-                        }
-                    } else {
-                        Api.replyRoom(searchRoom, "⚠️ 서버 응답 없음 (E01)");
-                    }
-                } catch (e) {
-                    Log.d("[뉴스봇] 검색 오류: " + e.message);
-                    // 1번 재시도
+                for (var attempt = 0; attempt < 2; attempt++) {
                     try {
-                        java.lang.Thread.sleep(3000);
-                        var retryRes = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
+                        var searchRes = org.jsoup.Jsoup.connect(NEWS_AUTO_URL + "/search-keyword")
                             .header("Content-Type", "application/json")
+                            .header("Connection", "keep-alive")
                             .requestBody(JSON.stringify({ keyword: searchKeyword }))
                             .ignoreContentType(true)
                             .ignoreHttpErrors(true)
@@ -358,24 +361,30 @@ function response(room, msg, sender, isGroupChat, replier) {
                             .execute()
                             .body();
 
-                        if (retryRes) {
-                            var retryResult = JSON.parse(retryRes);
-                            if (retryResult.count > 0) {
-                                Api.replyRoom(searchRoom, "📰 [" + searchKeyword + "] 검색 결과: " + retryResult.count + "건");
-                                for (var idx = 0; idx < retryResult.messages.length; idx++) {
+                        if (searchRes) {
+                            var searchResult = JSON.parse(searchRes);
+                            if (searchResult.count > 0) {
+                                Api.replyRoom(searchRoom, "📰 [" + searchKeyword + "] 검색 결과: " + searchResult.count + "건");
+                                for (var idx = 0; idx < searchResult.messages.length; idx++) {
                                     java.lang.Thread.sleep(1500);
-                                    Api.replyRoom(searchRoom, retryResult.messages[idx]);
+                                    Api.replyRoom(searchRoom, searchResult.messages[idx]);
                                 }
                             } else {
                                 Api.replyRoom(searchRoom, "📭 [" + searchKeyword + "] 관련 주요 뉴스가 없습니다.");
                             }
+                            return; // 성공 시 즉시 종료
                         } else {
-                            Api.replyRoom(searchRoom, "⚠️ 검색 실패. 잠시 후 다시 시도해주세요. (E01)");
+                            Api.replyRoom(searchRoom, "⚠️ 서버 응답 없음 (E01)");
+                            return;
                         }
-                    } catch (e2) {
-                        Api.replyRoom(searchRoom, "⚠️ 검색 오류가 계속됩니다. 잠시 후 다시 시도해주세요. (E04)");
+                    } catch (e) {
+                        Log.d("[뉴스봇] 검색 시도 " + (attempt+1) + " 실패: " + e.message);
+                        if (attempt === 0) {
+                            java.lang.Thread.sleep(5000); // 5초 대기 후 재시도
+                        }
                     }
                 }
+                Api.replyRoom(searchRoom, "⚠️ 검색 오류가 계속됩니다. 잠시 후 다시 시도해주세요. (E04)");
             }
         }).start();
         return;
