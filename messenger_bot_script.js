@@ -330,6 +330,49 @@ function response(room, msg, sender, isGroupChat, replier) {
         return;
     }
 
+    // ── AI 질문 ("질문"으로 시작해야 작동) ──
+    if (text.indexOf("질문") === 0) {
+        var question = text.substring(2).trim();
+        if (question.length < 2) {
+            replier.reply("📌 사용법: 질문 트럼프 관세 정책의 핵심이 뭐야?\n궁금한 내용을 입력해주세요.");
+            return;
+        }
+
+        replier.reply("🤖 답변 준비 중... (5~10초 소요)");
+
+        var askRoom = room;
+        var askQuestion = question;
+        new java.lang.Thread({
+            run: function () {
+                warmupServer(NEWS_BOT_URL);
+
+                try {
+                    var askRes = org.jsoup.Jsoup.connect(NEWS_BOT_URL + "/ask")
+                        .header("Content-Type", "application/json")
+                        .header("Connection", "keep-alive")
+                        .requestBody(JSON.stringify({ text: askQuestion }))
+                        .ignoreContentType(true)
+                        .ignoreHttpErrors(true)
+                        .timeout(30000)
+                        .method(org.jsoup.Connection.Method.POST)
+                        .execute()
+                        .body();
+
+                    if (askRes) {
+                        var result = JSON.parse(askRes);
+                        Api.replyRoom(askRoom, result.response);
+                    } else {
+                        Api.replyRoom(askRoom, "⚠️ 서버 응답 없음. 잠시 후 다시 시도해주세요.");
+                    }
+                } catch (e) {
+                    Log.d("[뉴스봇] 질문 오류: " + e.message);
+                    Api.replyRoom(askRoom, "⚠️ 답변 생성에 실패했어요. 잠시 후 다시 시도해주세요. (E04)");
+                }
+            }
+        }).start();
+        return;
+    }
+
     // ── 키워드 뉴스 검색 ("검색"으로 시작해야 작동) ──
     if (text.indexOf("검색") === 0) {
         var keyword = text.substring(2).trim();
