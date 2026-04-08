@@ -227,3 +227,84 @@ def collect_by_keywords(keywords: list, minutes: int = 15) -> list:
             all_news.append(news)
 
     return all_news
+
+
+def fetch_article_body(url: str, timeout: int = 5) -> str:
+    """단일 기사 본문 크롤링 (빠른 텍스트 추출)"""
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=timeout)
+        resp.encoding = resp.apparent_encoding or 'utf-8'
+        html = resp.text
+
+        # <article> 또는 본문 영역 추출 시도
+        import re
+
+        # 네이버 뉴스 본문 추출
+        article_match = re.search(
+            r'<article[^>]*>(.*?)</article>',
+            html, re.DOTALL
+        )
+        if not article_match:
+            # 일반적인 본문 div 시도
+            article_match = re.search(
+                r'<div[^>]*(?:article|content|news_body|newsct_article)[^>]*>(.*?)</div>',
+                html, re.DOTALL
+            )
+
+        if article_match:
+            body_html = article_match.group(1)
+        else:
+            # body 전체에서 추출
+            body_match = re.search(r'<body[^>]*>(.*?)</body>', html, re.DOTALL)
+            body_html = body_match.group(1) if body_match else html
+
+        # HTML 태그 제거
+        text = re.sub(r'<script[^>]*>.*?</script>', '', body_html, flags=re.DOTALL)
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+        text = re.sub(r'<[^>]+>', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        # 최대 800자 (토큰 절약)
+        return text[:800] if text else ""
+
+    except Exception as e:
+        print(f"본문 크롤링 실패 ({url[:50]}): {e}")
+        return ""
+
+
+def fetch_article_bodies(articles: list, top_n: int = 5) -> list:
+    """
+    상위 N건의 기사 본문을 병렬 크롤링
+
+    Args:
+        articles: 뉴스 목록
+        top_n: 크롤링할 상위 기사 수
+
+    Returns:
+        articles (body_text 필드 추가됨)
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    targets = articles[:top_n]
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            executor.submit(fetch_article_body, a["url"]): i
+            for i, a in enumerate(targets)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                body = future.result()
+                targets[idx]["body_text"] = body
+            except Exception:
+                targets[idx]["body_text"] = ""
+
+    # 나머지 기사는 body_text 없음
+    for a in articles[top_n:]:
+        a["body_text"] = ""
+
+    return articles
