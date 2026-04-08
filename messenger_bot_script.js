@@ -15,7 +15,7 @@
 // ===== 서버 URL =====
 var NEWS_BOT_URL = "https://kakao-news-bot.replit.app";
 var NEWS_AUTO_URL = "https://kakao-news-auto-v-4.replit.app";
-var GROUP_ROOM_NAME = "뉴스봇 테스트방";
+var GROUP_ROOM_NAME = "실시간 뉴스봇";
 
 // ===== 설정 =====
 var POLL_INTERVAL = 60000;
@@ -249,7 +249,8 @@ function ensureTimerRunning() {
     }
 }
 
-startTimer();
+// Timer는 첫 메시지 수신 시 ensureTimerRunning()으로 시작
+try { startTimer(); } catch (e) { Log.d("[뉴스봇] 초기 Timer 시작 실패 (무시): " + e); }
 
 // ===== [기능 3] 사용자 메시지 응답 =====
 
@@ -388,15 +389,14 @@ function response(room, msg, sender, isGroupChat, replier) {
             return;
         }
 
-        replier.reply("🔍 [" + keyword + "] 뉴스 검색 중... (20~30초 소요)");
+        replier.reply("🔍 [" + keyword + "] 뉴스 검색 중... (10~15초 소요)");
 
         // ★ 백그라운드 스레드에서 실행 (response() 즉시 반환 → 안드로이드 강제종료 방지)
         var searchRoom = room;
         var searchKeyword = keyword;
         new java.lang.Thread({
             run: function () {
-                // 서버 워밍업 (cold start 방지)
-                warmupServer(NEWS_AUTO_URL);
+                // Reserved VM이므로 warmup 불필요
 
                 for (var attempt = 0; attempt < 2; attempt++) {
                     try {
@@ -416,7 +416,7 @@ function response(room, msg, sender, isGroupChat, replier) {
                             if (searchResult.count > 0) {
                                 Api.replyRoom(searchRoom, "📰 [" + searchKeyword + "] 검색 결과: " + searchResult.count + "건");
                                 for (var idx = 0; idx < searchResult.messages.length; idx++) {
-                                    java.lang.Thread.sleep(1500);
+                                    java.lang.Thread.sleep(800);
                                     Api.replyRoom(searchRoom, searchResult.messages[idx]);
                                 }
                             } else {

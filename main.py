@@ -217,8 +217,8 @@ async def search_keyword(data: dict):
         from news_collector import search_naver_news, parse_pub_date, fetch_article_bodies
         from news_filter import filter_and_analyze
 
-        # 1. 네이버 뉴스 검색: 관련도순 1회 (40건)
-        articles = search_naver_news(keyword, display=40, sort="sim")
+        # 1. 네이버 뉴스 검색: 관련도순 1회 (30건)
+        articles = search_naver_news(keyword, display=30, sort="sim")
 
         # 3일 이내 기사만 필터
         from datetime import datetime, timedelta, timezone
@@ -243,10 +243,16 @@ async def search_keyword(data: dict):
                 "message": f"'{keyword}' 관련 뉴스를 찾지 못했습니다."
             }
 
-        # 2. 상위 5건 본문 병렬 크롤링 (깊이 있는 분석용)
+        # 2. 제목에 키워드 포함된 기사 우선 정렬
+        keyword_lower = keyword.lower()
+        with_keyword = [a for a in recent_articles if keyword_lower in a.get("title", "").lower()]
+        without_keyword = [a for a in recent_articles if keyword_lower not in a.get("title", "").lower()]
+        recent_articles = (with_keyword + without_keyword)[:20]
+
+        # 3. 상위 5건 본문 병렬 크롤링 (깊이 있는 분석용)
         recent_articles = fetch_article_bodies(recent_articles, top_n=5)
 
-        # 3. Gemini 1회 호출로 필터+분석 통합 처리 (최대 3건)
+        # 4. Gemini 1회 호출로 필터+분석 통합 처리 (최대 3건)
         results = filter_and_analyze(recent_articles, keyword)
 
         if not results:
