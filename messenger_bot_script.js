@@ -346,28 +346,35 @@ function response(room, msg, sender, isGroupChat, replier) {
             run: function () {
                 warmupServer(NEWS_BOT_URL);
 
-                try {
-                    var askRes = org.jsoup.Jsoup.connect(NEWS_BOT_URL + "/ask")
-                        .header("Content-Type", "application/json")
-                        .header("Connection", "keep-alive")
-                        .requestBody(JSON.stringify({ text: askQuestion }))
-                        .ignoreContentType(true)
-                        .ignoreHttpErrors(true)
-                        .timeout(30000)
-                        .method(org.jsoup.Connection.Method.POST)
-                        .execute()
-                        .body();
+                var lastError = "";
+                for (var attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                    try {
+                        var askRes = org.jsoup.Jsoup.connect(NEWS_BOT_URL + "/ask")
+                            .header("Content-Type", "application/json")
+                            .header("Connection", "keep-alive")
+                            .requestBody(JSON.stringify({ text: askQuestion }))
+                            .ignoreContentType(true)
+                            .ignoreHttpErrors(true)
+                            .timeout(60000)
+                            .method(org.jsoup.Connection.Method.POST)
+                            .execute()
+                            .body();
 
-                    if (askRes) {
-                        var result = JSON.parse(askRes);
-                        Api.replyRoom(askRoom, result.response);
-                    } else {
-                        Api.replyRoom(askRoom, "⚠️ 서버 응답 없음. 잠시 후 다시 시도해주세요.");
+                        if (askRes) {
+                            var result = JSON.parse(askRes);
+                            Api.replyRoom(askRoom, result.response);
+                            return;
+                        }
+                    } catch (e) {
+                        lastError = e.message;
+                        Log.d("[뉴스봇] 질문 시도 " + (attempt+1) + " 실패: " + e.message);
+                        if (attempt < MAX_RETRIES - 1) {
+                            java.lang.Thread.sleep(3000);
+                            warmupServer(NEWS_BOT_URL);
+                        }
                     }
-                } catch (e) {
-                    Log.d("[뉴스봇] 질문 오류: " + e.message);
-                    Api.replyRoom(askRoom, "⚠️ 답변 생성에 실패했어요. 잠시 후 다시 시도해주세요. (E04)");
                 }
+                Api.replyRoom(askRoom, "⚠️ 답변 생성에 실패했어요. 잠시 후 다시 시도해주세요. (E04)");
             }
         }).start();
         return;

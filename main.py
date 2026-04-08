@@ -205,102 +205,59 @@ async def mark_sent_endpoint(data: dict):
 
 @app.post("/search-keyword")
 async def search_keyword(data: dict):
-    """키워드로 뉴스 검색 → AI 필터 → 분석 → 포맷된 메시지 반환"""
-    import asyncio
-    import concurrent.futures
-
+    """키워드로 뉴스 검색 → AI 통합 필터+분석 → 포맷된 메시지 반환
+    
+    최적화: Gemini 4회 → 1회, 네이버 검색 2회 → 1회
+    """
     keyword = data.get("keyword", "").strip()
     if not keyword:
         return {"status": "error", "message": "키워드를 입력해주세요"}
 
     try:
-        from news_collector import search_naver_news
+        from news_collector import search_naver_news, parse_pub_date
+        from news_filter import filter_and_analyze
 
-        # 1. 네이버 뉴스 검색: 최신순 10건 + 관련도순 10건 (속도 최적화)
-        articles_by_date = search_naver_news(keyword, display=10, sort="date")
-        articles_by_sim = search_naver_news(keyword, display=10, sort="sim")
-
-        if not articles_by_date and not articles_by_sim:
-            return {"status": "error", "message": f"뉴스 검색에 실패했습니다. (E01)"}
-
-        # URL 기준 중복 제거 (최신순 우선)
-        seen_urls = set()
-        combined = []
-        for a in articles_by_date + articles_by_sim:
-            if a["url"] not in seen_urls:
-                seen_urls.add(a["url"])
-                combined.append(a)
+        # 1. 네이버 뉴스 검색: 관련도순 1회 (40건)
+        articles = search_naver_news(keyword, display=40, sort="sim")
 
         # 3일 이내 기사만 필터
-        from news_collector import parse_pub_date
         from datetime import datetime, timedelta, timezone
         kst = timezone(timedelta(hours=9))
         cutoff = datetime.now(kst) - timedelta(days=3)
-        articles = []
-        for a in combined:
+        recent_articles = []
+        for a in articles:
             try:
                 pub_time = parse_pub_date(a.get("published_at", ""))
                 if pub_time.tzinfo is None:
                     pub_time = pub_time.replace(tzinfo=kst)
                 if pub_time >= cutoff:
-                    articles.append(a)
+                    recent_articles.append(a)
             except Exception:
-                articles.append(a)
+                recent_articles.append(a)
 
-        if not articles:
+        if not recent_articles:
             return {
                 "status": "ok",
                 "keyword": keyword,
                 "count": 0,
-                "message": f"'{keyword}' 관련 최근 3일 이내 뉴스를 찾지 못했습니다."
+                "message": f"'{keyword}' 관련 뉴스를 찾지 못했습니다."
             }
 
-        # Gemini 필터에 최대 15건만 전달 (속도 최적화)
-        articles_for_filter = articles[:15]
+        # 2. Gemini 1회 호출로 필터+분석 통합 처리 (최대 2건)
+        results = filter_and_analyze(recent_articles, keyword)
 
-        # 2. Gemini AI로 핵심 이슈만 선별 (별도 스레드에서 실행)
-        loop = asyncio.get_event_loop()
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+        if not results:
+            return {
+                "status": "ok",
+                "keyword": keyword,
+                "count": 0,
+                "searched": len(recent_articles),
+                "message": f"'{keyword}' 관련 주요 뉴스가 없습니다."
+            }
 
-        filtered = await loop.run_in_executor(
-            executor, lambda: filter_news(articles_for_filter, keyword=keyword)
-        )
-
-        if not filtered:
-            filtered = articles[:3]
-
-        # 최대 3건만 처리 (속도 최적화)
-        filtered = filtered[:3]
-
-        # 3. 각 뉴스 병렬 분석
-        def _analyze_one(news):
-            try:
-                return analyze_news(news["title"], news.get("description", ""))
-            except Exception:
-                return {
-                    "sentiment": "neutral", "tag": "이슈",
-                    "summary": news.get("description", "")[:200],
-                    "ai_comment": "AI 분석 오류 (E04)", "sectors": [], "related_stocks": []
-                }
-
-        analysis_tasks = [
-            loop.run_in_executor(executor, _analyze_one, news)
-            for news in filtered
-        ]
-        analyses = await asyncio.wait_for(
-            asyncio.gather(*analysis_tasks, return_exceptions=True),
-            timeout=60
-        )
-
-        # 4. 포맷
+        # 3. 포맷
         messages = []
-        for i, news in enumerate(filtered):
-            analysis = analyses[i] if not isinstance(analyses[i], Exception) else {
-                "sentiment": "neutral", "tag": "이슈",
-                "summary": news.get("description", "")[:200],
-                "ai_comment": "AI 분석 오류 (E04)", "sectors": [], "related_stocks": []
-            }
-
+        for news, analysis in results:
             msg = format_news_message(
                 title=news["title"],
                 published_at=news.get("published_at", ""),
@@ -317,12 +274,9 @@ async def search_keyword(data: dict):
             "messages": messages
         }
 
-    except asyncio.TimeoutError:
-        logger.warning(f"[E03] 키워드 검색 타임아웃: {keyword}")
-        return {"status": "error", "message": "분석 시간이 초과되었습니다. 다시 시도해주세요. (E03)"}
     except Exception as e:
-        logger.error(f"[E04] 키워드 검색 오류: {e}")
-        return {"status": "error", "message": f"검색 중 오류가 발생했습니다. (E04)"}
+        logger.error(f"키워드 검색 오류: {e}")
+        return {"status": "error", "message": f"검색 오류가 발생했습니다. 다시 시도해주세요."}
 
 
 @app.post("/force-check")

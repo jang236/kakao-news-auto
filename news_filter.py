@@ -156,6 +156,120 @@ def filter_news(news_list: list, keyword: str = "") -> list:
         return news_list[:3]
 
 
+# ===== 통합 필터+분석 (키워드 검색 최적화용) =====
+
+FILTER_ANALYZE_PROMPT = """당신은 한국 주식 투자자를 위한 뉴스 편집장이자 분석 전문가입니다.
+
+[검색 키워드: {keyword}]
+
+[뉴스 목록]
+{news_list}
+
+[작업]
+1. 위 뉴스 중에서 '{keyword}'이(가) 기사의 핵심 주제인 것만 선별하세요.
+   - '{keyword}'이(가) 배경/부수적으로만 언급된 기사는 제외
+   - 제목만 보고 '{keyword}'에 대한 기사라고 즉시 판단되어야 함
+2. 선별된 기사 중 투자자에게 가장 중요한 **최대 2건**만 골라 분석하세요.
+3. 중복 이슈(같은 사건의 다른 기사)는 1건만 남기세요.
+
+[출력: JSON만 출력, 마크다운 금지]
+{{
+    "results": [
+        {{
+            "index": 원본_목록의_번호,
+            "sentiment": "positive 또는 negative 또는 neutral",
+            "tag": "속보 또는 호재 또는 악재 또는 이슈",
+            "summary": "핵심 2~3문장. 누가 무엇을 왜 했는지, 시장에 어떤 영향인지. 일반 텍스트만.",
+            "ai_comment": "비유나 쉬운 표현으로 핵심을 한 줄 정리. 일반 텍스트만.",
+            "sectors": ["관련섹터1", "관련섹터2"],
+            "related_stocks": ["관련종목1", "관련종목2"]
+        }}
+    ]
+}}
+
+선별할 뉴스가 없으면:
+{{"results": []}}
+"""
+
+
+def filter_and_analyze(news_list: list, keyword: str) -> list:
+    """
+    키워드 검색 전용: 필터링 + 분석을 Gemini 1회 호출로 통합 처리
+
+    Returns:
+        [(news_dict, analysis_dict), ...] — 최대 2건
+    """
+    if not news_list or not keyword:
+        return []
+
+    client = _get_client()
+    if not client:
+        logger.warning("[E02] GEMINI_API_KEY 미설정. 상위 2건 반환.")
+        return [(n, {
+            "sentiment": "neutral", "tag": "이슈",
+            "summary": n.get("description", "")[:200],
+            "ai_comment": "", "sectors": [], "related_stocks": []
+        }) for n in news_list[:2]]
+
+    # 뉴스 목록 텍스트 생성
+    news_text_lines = []
+    for i, news in enumerate(news_list):
+        news_text_lines.append(
+            f"{i}. [{news['title']}] {news.get('description', '')[:100]}"
+        )
+    news_text = "\n".join(news_text_lines)
+
+    prompt = FILTER_ANALYZE_PROMPT.format(
+        keyword=keyword,
+        news_list=news_text
+    )
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
+        )
+        result_text = response.text.strip()
+        result = json.loads(result_text)
+
+        items = result.get("results", [])
+        output = []
+        for item in items[:2]:  # 최대 2건
+            idx = item.get("index", -1)
+            if 0 <= idx < len(news_list):
+                news = news_list[idx]
+                analysis = {
+                    "sentiment": item.get("sentiment", "neutral"),
+                    "tag": item.get("tag", "이슈"),
+                    "summary": item.get("summary", news.get("description", "")[:200]),
+                    "ai_comment": item.get("ai_comment", ""),
+                    "sectors": item.get("sectors", []),
+                    "related_stocks": item.get("related_stocks", [])
+                }
+                output.append((news, analysis))
+
+        logger.info(f"📋 통합 필터+분석: {len(news_list)}건 → {len(output)}건 선별 완료")
+        return output
+
+    except json.JSONDecodeError as e:
+        logger.error(f"[E05] 통합 분석 JSON 파싱 오류: {e}")
+        return [(n, {
+            "sentiment": "neutral", "tag": "이슈",
+            "summary": n.get("description", "")[:200],
+            "ai_comment": "", "sectors": [], "related_stocks": []
+        }) for n in news_list[:2]]
+    except Exception as e:
+        logger.error(f"[E02] 통합 필터+분석 오류: {type(e).__name__}: {e}")
+        return [(n, {
+            "sentiment": "neutral", "tag": "이슈",
+            "summary": n.get("description", "")[:200],
+            "ai_comment": "", "sectors": [], "related_stocks": []
+        }) for n in news_list[:2]]
+
+
 def get_dynamic_keywords() -> list:
     """
     Gemini에게 이번 주 주목할 키워드 요청
